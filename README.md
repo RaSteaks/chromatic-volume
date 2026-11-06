@@ -145,6 +145,31 @@ flowchart LR
 
 <br />
 
+## ☁️ Cloudflare Workers 部署
+
+项目使用 Workers Static Assets 托管 Vite 生成的 `dist`，部署配置保存在 `wrangler.jsonc`。
+首页与 `/preview/` 使用各自的 HTML 入口，未知路径返回 404。
+
+Cloudflare Workers Builds 设置：
+
+- **构建命令**：`npm run build`
+- **部署命令**：`npx wrangler deploy`
+- **根目录**：仓库根目录
+
+Wrangler 已列入开发依赖并由 `package-lock.json` 锁定版本，CI 的 `npm ci` 会安装它。
+部署直接读取静态资源配置，无需自动修改 Vite 配置或安装 Cloudflare Vite 插件。
+
+本地安装依赖后，可先构建并检查部署配置（不上传）：
+
+```bash
+npm ci
+npm run deploy -- --dry-run
+```
+
+完成 Cloudflare 授权后，运行 `npm run deploy` 可构建并发布。
+
+<br />
+
 ## 📄 许可证
 
 本项目基于 [GNU Affero General Public License v3.0](LICENSE) 开源。

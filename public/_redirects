@@ -1,2 +1,2 @@
+# /preview/ 使用原生目录入口，重写到 index.html 会与 HTML 规范化重定向形成循环。
 /preview /preview/index.html 200
-/preview/ /preview/index.html 200

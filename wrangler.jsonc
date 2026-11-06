@@ -1,0 +1,11 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "chromatic-volume",
+  "compatibility_date": "2026-11-04",
+  "assets": {
+    "directory": "./dist",
+    // 首页与 /preview/ 都有独立的 HTML 入口，按静态文件路由，未知路径返回 404。
+    "html_handling": "auto-trailing-slash",
+    "not_found_handling": "404-page",
+  },
+}
