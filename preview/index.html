@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#17191c" />
+    <meta name="description" content="自动展示 sRGB 与 Oklab 的三维色体积。" />
+    <meta property="og:image" content="/cover.png" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <title>色体积自动预览 · Chromatic Volume</title>
+  </head>
+  <body>
+    <div id="app">
+      <div class="startup" role="status">
+        <img
+          src="/cover.png"
+          width="1600"
+          height="1000"
+          alt="sRGB 与 Oklab 色体积对比"
+        />
+        <p>正在准备自动预览…</p>
+        <noscript
+          >当前显示静态封面。启用 JavaScript 后可查看动态预览。</noscript
+        >
+      </div>
+    </div>
+    <script type="module" src="/src/bootstrap.ts"></script>
+  </body>
+</html>

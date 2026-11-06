@@ -1,0 +1,55 @@
+# Dependencies and local package caches
+node_modules/
+.npm/
+
+# Build output and tool caches
+dist/
+.vite/
+.vite-temp/
+.cache/
+*.tsbuildinfo
+
+# Test reports and coverage
+test-results/
+playwright-report/
+blob-report/
+coverage/
+.nyc_output/
+
+# Generated screenshots, reference LUTs, numerical results, and audit reports
+/artifacts/*
+!/artifacts/.gitkeep
+/premium-audit.json
+
+# Python reference-engine environments and bytecode
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Local environment variables; keep shareable examples and templates
+.env
+.env.*
+!.env.example
+!.env.*.example
+!.env.template
+!.env.*.template
+
+# Local hosting state (deployment configuration remains versioned)
+.vercel/
+.netlify/
+.wrangler/
+
+# Local logs and editor recovery files
+npm-debug.log*
+*.log
+*.swp
+*.swo
+.history/
+
+# Operating-system metadata
+.DS_Store
+._*
+Thumbs.db
+Desktop.ini

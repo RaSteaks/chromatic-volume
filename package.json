@@ -1,0 +1,30 @@
+{
+  "name": "chromatic-volume",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --host 127.0.0.1",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:e2e": "playwright test",
+    "generate:cover": "node scripts/generate-cover.mjs",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test:reference": "vitest run --config vitest.reference.config.ts",
+    "verify:reference": "node scripts/verify-reference.mjs"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.56.1",
+    "@types/node": "^22.19.0",
+    "prettier": "^3.6.2",
+    "typescript": "^5.9.3",
+    "vite": "^7.2.2",
+    "vitest": "^5.1.0"
+  },
+  "dependencies": {
+    "colorjs.io": "^0.7.1"
+  }
+}

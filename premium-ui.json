@@ -1,0 +1,16 @@
+{
+  "profile": "product-admin",
+  "sourceRoots": ["src"],
+  "locale": "zh-CN",
+  "canonicalMap": "DESIGN.md",
+  "requiredCapabilities": ["Select/Listbox", "Form", "Scrollbar", "Toast"],
+  "ownership": { "Select/Listbox": "native" },
+  "requiredCommands": ["unit", "e2e", "typecheck", "build"],
+  "commands": {
+    "unit": "npm test",
+    "e2e": "npm run test:e2e",
+    "typecheck": "npm run typecheck",
+    "build": "npm run build"
+  },
+  "evidence": { "failurePaths": "tests/e2e/workbench.spec.ts" }
+}
