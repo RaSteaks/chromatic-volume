@@ -228,6 +228,15 @@ export function managedLut(
     ),
   };
 }
+// Use the same normative ACEScc curve for named-space conversions and LUTs.
+// Color.js 0.7.1 switches its encoder at 2^-16 instead of 2^-15, causing a
+// downward jump in the shadows. Keep its AP1 matrices/white point, replace both curves.
+const acescc = Color.Space.get('acescc');
+acescc.fromBase = (coords) =>
+  coords.map((value) => encodeTransfer(value ?? 0, 'acescc')) as Vec3;
+acescc.toBase = (coords) =>
+  coords.map((value) => decodeTransfer(value ?? 0, 'acescc')) as Vec3;
+
 // Explicit source/target presets. BT.1886 is paired with Rec.709 primaries here;
 // it is a transfer function, not an additional set of primaries.
 for (const [id, gamma] of [

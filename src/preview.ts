@@ -6,6 +6,7 @@ import {
   getTarget,
   sourcePosition,
   targetPosition,
+  plotGuides,
 } from './targets';
 import { VolumeView, type VolumeData } from './volume';
 
@@ -18,12 +19,14 @@ export function mountPreviewPage(root: HTMLElement) {
   const target = getTarget('oklab')!;
   const samples = createSourceSamples(state.density, state.source);
   const source: VolumeData = {
+    guides: plotGuides(getTarget(state.source)!, state.equalAxes),
     positions: samples.map(sourcePosition),
     colors: samples,
     axes: ['R', 'G', 'B'],
     cube: true,
   };
   const destination: VolumeData = {
+    guides: plotGuides(target, state.equalAxes),
     positions: samples.map((point) =>
       targetPosition(convertColor(point, target), target, state.equalAxes),
     ),

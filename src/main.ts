@@ -24,7 +24,6 @@ import {
   createSourceSamples,
   convertColor,
   getTarget,
-  sourcePosition,
   targetPosition,
   plotGuides,
   type ColorTarget,
@@ -50,6 +49,7 @@ let sourceColors = samples.map((point) =>
 let targetCoordinates: Vec3[] = [];
 let targetPositions: Vec3[] = [];
 let outputColors: Vec3[] = [];
+let conversionLoss: boolean[] = [];
 let selectedPoint = (state.density - 1) * state.density ** 2;
 let selectedStage: StageId = 'saturation';
 let lut: CubeLut | null = null;
@@ -197,14 +197,16 @@ function draw() {
     }
     const plotTarget =
       state.plot === 'native' ? undefined : getTarget(state.plot);
+    const sourceModel = plotTarget ?? getTarget(state.source)!;
     const source: VolumeData = {
-      guides: plotTarget ? plotGuides(plotTarget, state.equalAxes) : undefined,
+      guides: plotGuides(sourceModel, state.equalAxes),
       positions: sourcePositions,
       colors: sourceColors,
-      axes: plotTarget?.axes ?? ['R', 'G', 'B'],
-      cube: plotTarget ? ['rgb', 'xyz'].includes(plotTarget.kind) : true,
+      axes: sourceModel.axes,
+      cube: ['rgb', 'log', 'xyz'].includes(sourceModel.kind),
     };
     const target = getTarget(state.target);
+    const destinationModel = plotTarget ?? target ?? sourceModel;
     const positions = isLook()
       ? targetPositions
       : targetPositions.map(
@@ -217,13 +219,11 @@ function draw() {
         );
     // Morphing interpolates plotting positions only. Numeric readouts always show the actual target coordinates.
     const destination: VolumeData = {
-      guides: plotTarget ? plotGuides(plotTarget, state.equalAxes) : undefined,
+      guides: plotGuides(destinationModel, state.equalAxes),
       positions,
-      colors: isLook() && !state.preserve ? outputColors : sourceColors,
-      axes: plotTarget?.axes ?? target?.axes ?? ['R', 'G', 'B'],
-      cube: plotTarget
-        ? ['rgb', 'xyz'].includes(plotTarget.kind)
-        : !target || ['rgb', 'log', 'xyz'].includes(target.kind),
+      colors: isLook() && state.preserve ? sourceColors : outputColors,
+      axes: destinationModel.axes,
+      cube: ['rgb', 'log', 'xyz'].includes(destinationModel.kind),
       origins: sourcePositions,
     };
     views[0]?.draw(source, selectedPoint);
@@ -243,6 +243,7 @@ function draw() {
 }
 function updateModel() {
   const target = getTarget(state.target);
+  conversionLoss = [];
   if (target) {
     targetCoordinates = samples.map((point) =>
       convertColor(point, target, state.source),
@@ -250,13 +251,28 @@ function updateModel() {
     targetPositions = targetCoordinates.map((point) =>
       plotPosition(point, target),
     );
-    outputColors = sourceColors;
+    // A valid target encoding need not preserve the input color (e.g. negative
+    // channels in BT.1886 or ACEScc). Decode the result rather than assuming identity.
+    outputColors = targetCoordinates.map((point) =>
+      convertColor(point, getTarget('srgb')!, target.id),
+    );
+    conversionLoss = targetCoordinates.map((point, index) => {
+      const before = convertColor(
+        samples[index],
+        getTarget('xyz-d65')!,
+        state.source,
+      );
+      const after = convertColor(point, getTarget('xyz-d65')!, target.id);
+      // Numerical round-trip tolerance in relative XYZ, not a perceptual ΔE threshold.
+      return before.some((value, axis) => Math.abs(value - after[axis]) > 1e-7);
+    });
   } else if (state.target === 'stages') {
     targetCoordinates = sourceColors.map((point) =>
       transform(point, state.stages, state.strength),
     );
     outputColors = targetCoordinates;
-    targetPositions = targetCoordinates.map(sourcePosition);
+    // Like LUTs, teaching stages always use a common plot space on both sides.
+    targetPositions = [];
   } else if (lutReady()) {
     clippedInputs = 0;
     const results = samples.map((point) =>
@@ -294,11 +310,12 @@ function updateModel() {
       : plotPosition(point, getTarget(state.source)!),
   );
   if (plotTarget && state.target !== 'lut') {
-    targetPositions = target
-      ? sourcePositions
-      : targetCoordinates.map((point) =>
-          plotPosition(convertColor(point, plotTarget), plotTarget),
-        );
+    targetPositions = targetCoordinates.map((point) =>
+      plotPosition(
+        convertColor(point, plotTarget, target?.id ?? 'srgb'),
+        plotTarget,
+      ),
+    );
   }
   emptyTarget.hidden = state.target !== 'lut' || lutReady();
   emptyTarget.querySelector('strong')!.textContent = lut
@@ -350,14 +367,14 @@ function updateLabels() {
       ? state.target === 'lut'
         ? '在共同 XYZ 线性光空间混合；坐标比例固定。'
         : '教学阶段在编码 sRGB 混合后转入共同坐标。'
-      : '同一批颜色在共同空间中重合；转换数值见右侧。';
+      : '按目标坐标解码后绘图；无损转换重合，颜色损失会改变点位。';
   }
   strength.input.setAttribute('aria-label', isLook() ? '处理强度' : '映射进度');
   strength.element.querySelector('label')!.textContent = isLook()
     ? '处理强度'
     : '映射进度';
   modelStatus.textContent = target
-    ? `${sourceColors.filter((point) => point.some((v) => v < -1e-7 || v > 1 + 1e-7)).length} 点超出 sRGB 显示范围 · 仅着色裁剪`
+    ? `${outputColors.filter((point) => point.some((v) => v < -1e-7 || v > 1 + 1e-7)).length} 个目标点超出 sRGB 显示范围 · ${conversionLoss.filter(Boolean).length} 点在目标转换中损失颜色`
     : state.target === 'lut'
       ? lut
         ? lutReady()
@@ -377,13 +394,21 @@ function updateSample() {
     state.plot === 'native' ? state.target : state.plot,
   );
   if (note && plotModel)
-    note.textContent = state.equalAxes
-      ? `等单位轴比例：${plotModel.kind === 'lab' || plotModel.kind === 'lch' ? 'L*、a*、b* 均除以 200' : plotModel.kind === 'oklab' || plotModel.kind === 'oklch' ? 'L、a、b 均使用原始单位' : '笛卡尔坐标统一缩放'}。极坐标按圆柱展开；屏幕投影距离不是色差读数。`
-      : plotModel.layout;
+    note.textContent = ['hsl', 'hsv'].includes(plotModel.kind)
+      ? 'HSL / HSV 为圆柱参数示意图；S 为半径，L / V 为高度，距离不表示感知色差。'
+      : state.equalAxes
+        ? `等单位轴比例：${plotModel.kind === 'lab' || plotModel.kind === 'lch' ? 'L*、a*、b* 均除以 200' : plotModel.kind === 'oklab' || plotModel.kind === 'oklch' ? 'L、a、b 均使用原始单位' : '笛卡尔坐标统一缩放'}。极坐标按圆柱展开；屏幕投影距离不是色差读数。`
+        : plotModel.layout;
 
   const input = samples[selectedPoint];
   const output = targetCoordinates[selectedPoint];
   const target = getTarget(state.target);
+  const warning = document.querySelector<HTMLElement>('#conversion-warning');
+  if (warning) {
+    warning.hidden = !conversionLoss[selectedPoint];
+    warning.textContent =
+      '目标转换存在颜色损失：解码后不能还原输入色。点位和输出色样显示实际结果。';
+  }
   const labels = target?.channels ?? ['R', 'G', 'B'];
   const swatch = el('span', {
     class: 'swatch',
@@ -405,7 +430,7 @@ function updateSample() {
         ? `${target.name} 目标坐标`
         : state.target === 'lut'
           ? 'LUT 原始输出 RGB（100%）'
-          : '输出 RGB',
+          : '输出 sRGB',
       el(
         'code',
         {},
@@ -432,7 +457,10 @@ function updateSample() {
     swatches.replaceChildren(
       ...[
         { label: '输入色样', rgb: sourceColors[selectedPoint] },
-        { label: '输出色样（当前强度）', rgb: outputColors[selectedPoint] },
+        {
+          label: target ? '目标解码色样' : '输出色样（当前强度）',
+          rgb: outputColors[selectedPoint],
+        },
       ].map(({ label, rgb }) =>
         el(
           'div',
@@ -476,9 +504,9 @@ function pick(index: number) {
 }
 function chooseTarget(id: string) {
   state.target = id;
-  if (id === 'lut' && state.plot === 'native') state.plot = 'oklab';
+  if (isLook() && state.plot === 'native') state.plot = 'oklab';
   plotSelect.value = state.plot;
-  plotSelect.options[0].disabled = id === 'lut';
+  plotSelect.options[0].disabled = isLook();
   mobileTarget.value = id;
   state.strength = 1;
   strength.set(1);
@@ -580,6 +608,14 @@ function sampleInspector() {
       state.target === 'lut' ? 'LUT 原始输出（100%）' : '目标坐标',
     ),
     el('dl', { id: 'coordinate-values' }),
+    getTarget(state.target)
+      ? el('p', {
+          id: 'conversion-warning',
+          class: 'inspector-hint',
+          role: 'status',
+          hidden: true,
+        })
+      : null,
     el('div', { id: 'sample-swatches', class: 'sample-swatches' }),
   );
 }
@@ -716,7 +752,7 @@ function renderInspector() {
         { class: 'stage-description' },
         state.source === 'srgb'
           ? target.description
-          : `将 ${getTarget(state.source)!.name} 色域采样转换为 ${target.name} 的 ${target.channels.join('、')} 坐标。转换保留颜色关系，绘图颜色统一转为 sRGB 显示。`,
+          : `将 ${getTarget(state.source)!.name} 色域采样转换为 ${target.name} 的 ${target.channels.join('、')} 坐标。目标解码后的实际颜色统一转为 sRGB 显示；无法还原输入色的样本会标记。`,
       ),
       el(
         'div',
@@ -735,7 +771,7 @@ function renderInspector() {
       el(
         'p',
         { class: 'inspector-hint' },
-        `源：${getTarget(state.source)!.name}，参考白 ${getTarget(state.source)!.white}。${state.source === 'acescc' ? '采样 ACEScc 中对应线性 0–1 的编码范围。' : '各通道在 0–1 范围重新等距采样。'} 展示源色域映射；目标坐标保留越界值，屏幕着色才裁剪到 sRGB。`,
+        `源：${getTarget(state.source)!.name}，参考白 ${getTarget(state.source)!.white}。${state.source === 'acescc' ? '采样 ACEScc 中对应线性 0–1 的编码范围。' : '各通道在 0–1 范围重新等距采样。'} 保留目标坐标；编码自身的负值或上限限制可能造成颜色损失，与最终 sRGB 着色裁剪分别报告。`,
       ),
     );
   } else if (state.target === 'lut') {
@@ -930,7 +966,7 @@ function renderDisplayControls() {
           state.preserve = value;
           draw();
         })
-      : el('span', { class: 'color-preserved' }, icon('check'), '保持原始颜色'),
+      : el('span', { class: 'color-preserved' }, icon('check'), '目标实际颜色'),
     toggle('equal-axes', '严格等比例', state.equalAxes, (value) => {
       state.equalAxes = value;
       updateModel();
@@ -1060,7 +1096,7 @@ const plotSelect = el(
   ),
 );
 plotSelect.value = state.plot;
-plotSelect.options[0].disabled = state.target === 'lut';
+plotSelect.options[0].disabled = isLook();
 plotSelect.addEventListener('change', () => {
   state.plot = plotSelect.value;
   updateModel();
@@ -1231,16 +1267,21 @@ function exportImage() {
   ctx.font = '24px sans-serif';
   ctx.fillText(`SOURCE: ${getTarget(state.source)!.name}`, 40, 55);
   ctx.fillText(
-    `TARGET: ${getTarget(state.target)?.name ?? lut?.name ?? 'Custom Look'}`,
+    `TARGET: ${getTarget(state.target)?.name ?? (state.target === 'lut' ? lut!.name : 'Custom Look')}`,
     840,
     55,
   );
+  const sourcePlot = state.plot === 'native' ? state.source : state.plot;
+  const targetPlot = state.plot === 'native' ? state.target : state.plot;
+  ctx.font = '13px sans-serif';
+  ctx.fillText(`PLOT: ${getTarget(sourcePlot)!.name}`, 40, 82, 760);
+  ctx.fillText(`PLOT: ${getTarget(targetPlot)!.name}`, 840, 82, 720);
   [leftCanvas, rightCanvas].forEach((source, index) => {
-    const ratio = Math.min(760 / source.width, 730 / source.height);
+    const ratio = Math.min(760 / source.width, 690 / source.height);
     ctx.drawImage(
       source,
       40 + index * 800 + (760 - source.width * ratio) / 2,
-      90 + (730 - source.height * ratio) / 2,
+      90 + (690 - source.height * ratio) / 2,
       source.width * ratio,
       source.height * ratio,
     );
@@ -1257,12 +1298,22 @@ function exportImage() {
       840,
       810,
     );
-    ctx.fillText(
-      `PLOT: ${state.plot} | ${state.equalAxes ? 'Equal-unit axes' : 'Illustrative axes'} | ${state.interpolation} | ${state.flatColors ? 'Flat' : 'Shaded'} | Clamped: ${clippedInputs}`,
-      40,
-      835,
-    );
   }
+  ctx.font = '13px sans-serif';
+  const plotKind = getTarget(targetPlot)!.kind;
+  const axisMode = ['hsl', 'hsv'].includes(plotKind)
+    ? 'Cylindrical parameter diagram'
+    : state.equalAxes
+      ? 'Equal-unit axes'
+      : 'Illustrative axes';
+  const colorMode =
+    isLook() && state.preserve ? 'Input tracking' : 'Actual output';
+  ctx.fillText(
+    `AXES: ${axisMode} | DOTS: ${state.flatColors ? 'Flat' : 'Shaded'} | COLORS: ${colorMode} | ${state.target === 'lut' ? `${state.interpolation} | DOMAIN clamped: ${clippedInputs}` : `Color loss: ${conversionLoss.filter(Boolean).length}`}`,
+    40,
+    835,
+    1520,
+  );
   ctx.fillStyle = '#a0a3ae';
   ctx.font = '16px sans-serif';
   ctx.fillText(

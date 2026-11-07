@@ -30,7 +30,9 @@ functions = {
 for gamma, (decode, encode) in functions.items():
  for direction, function in [('decode', decode), ('encode', encode)]:
   kwargs = {'exponent': 563/256 if direction == 'decode' else 256/563} if gamma == 'a98' else {'is_12_bits_system': True} if gamma == 'rec2020' else {}
-  for value in values:
+  # Exercise both sides of the ACEScc toe in the actual named-space path too.
+  cases = sorted(set(values + [knee + offset for knee in [2**-16, 2**-15] for offset in [-1e-10, 0, 1e-10]])) if gamma == 'acescc' else values
+  for value in cases:
    # ROMM integer-oriented helper clips >1 by design; compare its defined unit range.
    if gamma == 'prophoto' and value > 1: continue
    if gamma == 'srgb' and direction == 'decode' and value == .04045:

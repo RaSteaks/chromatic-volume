@@ -98,6 +98,19 @@ test('application calculations agree with independently generated Colour Science
       1e-9,
       item,
     );
+    if (item.gamma === 'acescc') {
+      const source = item.direction === 'encode' ? 'acescg' : 'acescc';
+      const target = getTarget(
+        item.direction === 'encode' ? 'acescc' : 'acescg',
+      )!;
+      check(
+        `named-space/acescc/${item.direction}`,
+        convertColor([item.value, item.value, item.value], target, source),
+        [item.expected, item.expected, item.expected],
+        1e-9,
+        item,
+      );
+    }
   }
   for (const item of reference.conversions) {
     const settings = {

@@ -1,7 +1,12 @@
 import { clamp, type LabState, type Vec3 } from './model';
 
 export interface VolumeData {
-  guides?: { origin: Vec3; ends: Vec3[]; labels: string[] };
+  guides?: {
+    origin: Vec3;
+    originLabel: string;
+    ends: Vec3[];
+    labels: string[];
+  };
   positions: Vec3[];
   colors: Vec3[];
   axes: [string, string, string];
@@ -164,6 +169,13 @@ export class VolumeView {
   }
   draw(data: VolumeData, selected: number | null) {
     if (!this.width || !this.height) return;
+    if (data.guides) {
+      const description = this.state.axes
+        ? `坐标参考：原点 ${data.guides.originLabel}；${data.guides.labels.join('；')}`
+        : '坐标参考已隐藏';
+      if (this.canvas.getAttribute('aria-description') !== description)
+        this.canvas.setAttribute('aria-description', description);
+    }
     const ctx = this.context;
     // Resize and repaint atomically: changing the bitmap size clears it immediately.
     // Doing this in ResizeObserver would expose an empty frame before the next RAF.
@@ -192,6 +204,7 @@ export class VolumeView {
         '#ffffff07',
       );
     }
+    const axisLabels: { point: Vec3; text: string; color: string }[] = [];
     if (this.state.axes) {
       if (data.cube) {
         const corners: Vec3[] = [
@@ -241,15 +254,19 @@ export class VolumeView {
             ]);
       ends.forEach((end, i) => {
         this.line(origin, end, ['#c96e6c80', '#7fb59080', '#7b94d080'][i]);
-        const label = this.project(end);
-        ctx.font = '10px ui-monospace, monospace';
-        ctx.fillStyle = ['#d99191', '#9bc7a7', '#99ade1'][i];
-        ctx.fillText(
-          data.guides?.labels[i] ?? data.axes[i],
-          label.x - 4,
-          label.y + 4,
-        );
+        axisLabels.push({
+          point: end,
+          text: data.guides?.labels[i] ?? data.axes[i],
+          color: ['#d99191', '#9bc7a7', '#99ade1'][i],
+        });
       });
+      if (data.guides) {
+        axisLabels.push({
+          point: origin,
+          text: data.guides.originLabel,
+          color: '#a0a3ae',
+        });
+      }
     }
     if (this.state.vectors && data.origins) {
       ctx.lineWidth = 0.6;
@@ -316,9 +333,35 @@ export class VolumeView {
         ctx.strokeStyle = '#f3edff';
         ctx.lineWidth = 1.5;
         ctx.beginPath();
-        ctx.arc(point.x, point.y, radius + 4, 0, Math.PI * 2);
+        // The selection halo is an annotation, not the sample position. Align it
+        // to device pixels to avoid asymmetric stroke antialiasing between canvases.
+        ctx.arc(
+          Math.round(point.x * ratio) / ratio,
+          Math.round(point.y * ratio) / ratio,
+          Math.round((radius + 4) * ratio) / ratio,
+          0,
+          Math.PI * 2,
+        );
         ctx.stroke();
       }
+    }
+    // Numeric endpoints often coincide with sampled black, white or primaries.
+    // Draw labels last with a backing so points cannot hide the actual scale.
+    ctx.font = '10px ui-monospace, monospace';
+    for (const label of axisLabels) {
+      const point = this.project(label.point);
+      // Snap annotation backing to device pixels; keep the plotted data unrounded.
+      const x = Math.round((point.x + 6) * ratio) / ratio;
+      const y = Math.round((point.y - 6) * ratio) / ratio;
+      ctx.fillStyle = '#141619';
+      ctx.fillRect(
+        x - 2,
+        y - 11,
+        Math.ceil(ctx.measureText(label.text).width) + 4,
+        14,
+      );
+      ctx.fillStyle = label.color;
+      ctx.fillText(label.text, x, y);
     }
     this.canvas.dataset.points = String(data.positions.length);
     this.canvas.dataset.camera = `${this.state.yaw.toFixed(3)},${this.state.pitch.toFixed(3)},${this.state.zoom.toFixed(3)}`;

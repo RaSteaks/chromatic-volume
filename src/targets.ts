@@ -277,10 +277,27 @@ export function convertColor(
   target: ColorTarget,
   source = 'srgb',
 ): Vec3 {
-  // Color.js owns transfer functions, standard matrices and chromatic adaptation.
+  // Color.js owns matrices/adaptation; color-management registers the shared curves.
   // Keep powerless hue as NaN in numeric results; only the drawing substitutes an angle.
-  const coords = new Color(source, rgb).to(target.id).coords;
-  return coords.map((value) => (value === null ? Number.NaN : value)) as Vec3;
+  const color = new Color(source, rgb);
+  const coords = color
+    .to(target.id)
+    .coords.map((value) => (value === null ? Number.NaN : value)) as Vec3;
+  // Matrix/adaptation roundoff can make a neutral RGB have tiny nonzero saturation.
+  // HSL uses the CSS powerless-hue threshold (S in percent); HSV shares that convention.
+  if (target.kind === 'hsl' || target.kind === 'hsv') {
+    const encoded = color.to('srgb').coords.map((value) => value ?? 0);
+    // At white, HSL's saturation denominator approaches zero and amplifies
+    // channel roundoff. Check RGB neutrality as well as the saturation threshold.
+    if (
+      Math.max(...encoded) - Math.min(...encoded) <= 1e-12 ||
+      Math.abs(coords[1]) <= 0.001
+    ) {
+      coords[0] = Number.NaN;
+      coords[1] = 0;
+    }
+  }
+  return coords;
 }
 export function targetPosition(
   coords: Vec3,
@@ -330,35 +347,64 @@ export function sourcePosition(rgb: Vec3): Vec3 {
 // Fixed world-unit anchors; no per-view bounds fitting. Endpoint labels supply
 // numerical axis values so geometry can be related back to the selected model.
 export function plotGuides(target: ColorTarget, equalAxes: boolean) {
-  if (target.kind === 'oklab')
-    return {
-      origin: [0, -0.5, 0] as Vec3,
-      ends: [
-        [equalAxes ? 0.4 : 0.6, -0.5, 0],
-        [0, 0.5, 0],
-        [0, -0.5, equalAxes ? 0.4 : 0.6],
-      ] as Vec3[],
-      labels: ['a 0.4', 'L 1', 'b 0.4'],
-    };
-  if (target.kind === 'lab') {
-    const bottom = equalAxes ? -0.25 : -0.5;
-    return {
-      origin: [0, bottom, 0] as Vec3,
-      ends: [
-        [0.5, bottom, 0],
-        [0, equalAxes ? 0.25 : 0.5, 0],
-        [0, bottom, 0.5],
-      ] as Vec3[],
-      labels: ['a* 100', 'L* 100', 'b* 100'],
-    };
+  let origin: Vec3 = [0, 0, 0];
+  let ends: Vec3[];
+  let values: Vec3;
+  switch (target.kind) {
+    case 'oklab':
+    case 'lab':
+    case 'luv':
+    case 'oklch':
+    case 'lch':
+    case 'lchuv': {
+      const [lightness, chroma] = {
+        oklab: [1, 0.4],
+        oklch: [1, 0.4],
+        lab: [100, 100],
+        lch: [100, 100],
+        luv: [100, 140],
+        lchuv: [100, 140],
+      }[target.kind];
+      const cylindrical = ['oklch', 'lch', 'lchuv'].includes(target.kind);
+      // Polar endpoints describe the Cartesian axes, not an axis measured in degrees.
+      ends = [
+        [0, chroma, 0],
+        [lightness, 0, 0],
+        cylindrical ? [0, chroma, 90] : [0, 0, chroma],
+      ];
+      values = [chroma, lightness, chroma];
+      break;
+    }
+    case 'hsl':
+    case 'hsv':
+      ends = [
+        [0, 100, 0],
+        [0, 0, 100],
+        [90, 100, 0],
+      ];
+      values = [100, 100, 100];
+      break;
+    case 'log':
+      origin = [-0.36, -0.36, -0.36];
+      ends = [
+        [0.56, -0.36, -0.36],
+        [-0.36, 0.56, -0.36],
+        [-0.36, -0.36, 0.56],
+      ];
+      values = [0.56, 0.56, 0.56];
+      break;
+    default:
+      ends = [
+        [1, 0, 0],
+        [0, 1, 0],
+        [0, 0, 1],
+      ];
+      values = [1, 1, 1];
   }
   return {
-    origin: [-0.5, -0.5, -0.5] as Vec3,
-    ends: [
-      [0.5, -0.5, -0.5],
-      [-0.5, 0.5, -0.5],
-      [-0.5, -0.5, 0.5],
-    ] as Vec3[],
-    labels: target.axes.map((axis) => `${axis} 1`),
+    origin: targetPosition(origin, target, equalAxes),
+    originLabel: target.kind === 'log' ? '−0.36' : '0',
+    ends: ends.map((coords) => targetPosition(coords, target, equalAxes)),
+    labels: target.axes.map((axis, i) => `${axis} ${values[i]}`),
   };
 }

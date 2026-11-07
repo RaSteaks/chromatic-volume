@@ -129,7 +129,8 @@ export function decodeState(serialized: string): LabState | null {
     return null;
   state.density = Number(parsed.density);
   state.target = parsed.target as string;
-  if (state.target === 'lut' && state.plot === 'native') state.plot = 'oklab';
+  if (['lut', 'stages'].includes(state.target) && state.plot === 'native')
+    state.plot = 'oklab';
   for (const key of ['preserve', 'vectors', 'axes'] as const) {
     if (typeof parsed[key] !== 'boolean') return null;
     state[key] = parsed[key];
