@@ -1,5 +1,6 @@
 import { gamuts, transfers } from './color-management';
 import { colorSources, getTarget } from './targets';
+import { gradientPairs } from './overlays';
 import {
   clamp,
   defaultState,
@@ -134,6 +135,29 @@ export function decodeState(serialized: string): LabState | null {
   for (const key of ['preserve', 'vectors', 'axes'] as const) {
     if (typeof parsed[key] !== 'boolean') return null;
     state[key] = parsed[key];
+  }
+  // Figure fields were added later; absent values keep the defaults.
+  for (const key of ['overlayOptimal', 'overlayPointer'] as const) {
+    if (parsed[key] === undefined) continue;
+    if (typeof parsed[key] !== 'boolean') return null;
+    state[key] = parsed[key];
+  }
+  if (parsed.compare !== undefined) {
+    if (
+      typeof parsed.compare !== 'string' ||
+      (parsed.compare !== '' && !getTarget(parsed.compare))
+    )
+      return null;
+    state.compare = parsed.compare;
+  }
+  if (parsed.gradient !== undefined) {
+    if (
+      typeof parsed.gradient !== 'string' ||
+      (parsed.gradient !== '' &&
+        !gradientPairs.some((pair) => pair.id === parsed.gradient))
+    )
+      return null;
+    state.gradient = parsed.gradient;
   }
   return state;
 }

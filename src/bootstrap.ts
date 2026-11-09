@@ -1,5 +1,6 @@
 import './style.css';
 import { button, el } from './dom';
+import { figureViews } from './shell';
 
 const root = document.querySelector<HTMLDivElement>('#app')!;
 const path = location.pathname.replace(/\/+$/, '') || '/';
@@ -45,8 +46,17 @@ if (path === '/' || preview) {
       const { mountPreviewPage } = await import('./preview');
       if (!timedOut) mountPreviewPage(root);
     } else {
-      const { mountLab } = await import('./main');
-      if (!timedOut) mountLab();
+      const view = new URLSearchParams(location.search).get('view');
+      const figureView = figureViews.find((id) => id === view);
+      if (figureView) {
+        // Both the page shell and the tab's figure modules load within the timeout.
+        const { loadFigures, mountFigures } = await import('./figures/page');
+        const groups = await loadFigures(figureView);
+        if (!timedOut) mountFigures(figureView, groups);
+      } else {
+        const { mountLab } = await import('./main');
+        if (!timedOut) mountLab();
+      }
     }
   } catch {
     showFailure();

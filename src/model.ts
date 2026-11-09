@@ -53,6 +53,12 @@ export interface LabState {
   yaw: number;
   pitch: number;
   zoom: number;
+  /** Optional comparison model drawn on the left instead of the source. */
+  compare: string;
+  overlayOptimal: boolean;
+  overlayPointer: boolean;
+  /** Gradient-path colour pair id, or '' when hidden. */
+  gradient: string;
 }
 const amount = (label: string, initial = 0, max = 1): Parameter => ({
   key: 'amount',
@@ -320,6 +326,10 @@ export function defaultState(): LabState {
     yaw: Math.PI / 4,
     pitch: 0.57,
     zoom: 1,
+    compare: '',
+    overlayOptimal: false,
+    overlayPointer: false,
+    gradient: '',
   };
 }
 export function createSamples(density: number): Vec3[] {

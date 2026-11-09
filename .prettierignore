@@ -4,3 +4,5 @@ artifacts
 playwright-report
 test-results
 package-lock.json
+src/data/*.json
+tests/reference/figures.json

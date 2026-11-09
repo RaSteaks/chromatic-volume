@@ -15,7 +15,8 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test:reference": "vitest run --config vitest.reference.config.ts",
-    "verify:reference": "node scripts/verify-reference.mjs"
+    "verify:reference": "node scripts/verify-reference.mjs",
+    "generate:figure-data": "node scripts/generate-figure-data.mjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.56.1",

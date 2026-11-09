@@ -30,6 +30,16 @@ import {
 } from './targets';
 import { parseCube, type CubeLut } from './lut';
 import { VolumeView, type VolumeData } from './volume';
+import {
+  gradientModes,
+  gradientOverlays,
+  gradientPairs,
+  optimalOverlay,
+  pointerOverlay,
+  type Overlay,
+} from './overlays';
+import { volumeFigures, type VolumeFigure } from './volume-figures';
+import { viewTabs } from './shell';
 
 const root = document.querySelector<HTMLDivElement>('#app')!;
 const search = new URLSearchParams(location.search);
@@ -46,11 +56,16 @@ let sourcePositions = samples.map((point) =>
 let sourceColors = samples.map((point) =>
   convertColor(point, getTarget('srgb')!, state.source),
 );
+// Source samples in the source (or common plot) model: the start of the
+// source → target morph, independent of any comparison model on the left.
+let originPositions = sourcePositions;
 let targetCoordinates: Vec3[] = [];
 let targetPositions: Vec3[] = [];
 let outputColors: Vec3[] = [];
 let conversionLoss: boolean[] = [];
 let selectedPoint = (state.density - 1) * state.density ** 2;
+let activeFigure: VolumeFigure | null = null;
+const overlayCache = new Map<string, NonNullable<VolumeData['lines']>>();
 let selectedStage: StageId = 'saturation';
 let lut: CubeLut | null = null;
 let lutInputs: Vec3[] = [];
@@ -89,10 +104,25 @@ const rightTitle = el('strong');
 const rightCaption = el('span');
 const rightMode = el('span', { class: 'volume-caption' });
 const sourceTitle = el('strong', {}, '源：sRGB');
+const sourceTag = el('span', { class: 'mono' }, 'SOURCE');
 const viewStatus = el('span', { class: 'volume-caption' }, 'D65 · 编码 RGB');
 const mixingTitle = el('strong');
 const mixingDescription = el('p');
 const displayControls = el('div', { class: 'display-controls' });
+const overlayControls = el('div', { class: 'overlay-controls' });
+const legend = el('div', { class: 'overlay-legend', hidden: true });
+const interactionHint = el(
+  'div',
+  { class: 'interaction-hint' },
+  icon('rotate'),
+  el('span', {}, '拖动旋转 · 聚焦后滚轮缩放 · 方向键旋转'),
+  el('span', { class: 'sync-label' }, icon('link'), '视角同步'),
+);
+const figureList = el('div', {
+  class: 'figure-list',
+  role: 'group',
+  'aria-label': '色体积图例',
+});
 const leftCanvas = el(
   'canvas',
   {
@@ -179,6 +209,47 @@ function lutReady() {
 function isLook() {
   return state.target === 'stages' || state.target === 'lut';
 }
+/** A comparison model applies only to native plots of standard conversions. */
+function compareModel() {
+  return state.compare && !isLook() && state.plot === 'native'
+    ? getTarget(state.compare)
+    : undefined;
+}
+/** Shared by drawing and export so the left plot's label matches its coordinates. */
+function sourcePlotModel() {
+  return state.plot === 'native'
+    ? (compareModel() ?? getTarget(state.source)!)
+    : getTarget(state.plot)!;
+}
+function overlayLines(model: ColorTarget): NonNullable<VolumeData['lines']> {
+  if (!state.overlayOptimal && !state.overlayPointer && !state.gradient)
+    return [];
+  // Draw runs every animation frame: look up the cache before building anything.
+  const key = `${model.id}|${state.equalAxes}|${state.overlayOptimal}|${state.overlayPointer}|${state.gradient}`;
+  let lines = overlayCache.get(key);
+  if (!lines) {
+    const rgbPanel = ['rgb', 'log'].includes(model.kind);
+    const shown: Overlay[] = [
+      ...(state.overlayOptimal ? [optimalOverlay()] : []),
+      ...(state.overlayPointer ? [pointerOverlay()] : []),
+      ...(state.gradient ? gradientOverlays(state.gradient) : []),
+    ].filter((overlay) => !(overlay.shell && rgbPanel));
+    lines = shown.flatMap((overlay) =>
+      overlay.lines.map((points, i) => ({
+        points: points.map((xyz) =>
+          plotPosition(convertColor(xyz, model, 'xyz-d65'), model),
+        ),
+        color: overlay.color + (overlay.dots ? '' : 'a6'),
+        width: overlay.width,
+        closed: overlay.closed,
+        dots: overlay.dots?.[i],
+      })),
+    );
+    if (overlayCache.size > 40) overlayCache.clear();
+    overlayCache.set(key, lines);
+  }
+  return lines;
+}
 function stopRotation() {
   autoRotate = false;
   rotationButton.setAttribute('aria-pressed', 'false');
@@ -197,13 +268,14 @@ function draw() {
     }
     const plotTarget =
       state.plot === 'native' ? undefined : getTarget(state.plot);
-    const sourceModel = plotTarget ?? getTarget(state.source)!;
+    const sourceModel = sourcePlotModel();
     const source: VolumeData = {
       guides: plotGuides(sourceModel, state.equalAxes),
       positions: sourcePositions,
       colors: sourceColors,
       axes: sourceModel.axes,
-      cube: ['rgb', 'log', 'xyz'].includes(sourceModel.kind),
+      cube: ['rgb', 'log', 'xyz', 'lms'].includes(sourceModel.kind),
+      lines: overlayLines(sourceModel),
     };
     const target = getTarget(state.target);
     const destinationModel = plotTarget ?? target ?? sourceModel;
@@ -213,8 +285,8 @@ function draw() {
           (point, index) =>
             point.map(
               (channel, axis) =>
-                sourcePositions[index][axis] +
-                (channel - sourcePositions[index][axis]) * state.strength,
+                originPositions[index][axis] +
+                (channel - originPositions[index][axis]) * state.strength,
             ) as Vec3,
         );
     // Morphing interpolates plotting positions only. Numeric readouts always show the actual target coordinates.
@@ -223,8 +295,9 @@ function draw() {
       positions,
       colors: isLook() && state.preserve ? sourceColors : outputColors,
       axes: destinationModel.axes,
-      cube: ['rgb', 'log', 'xyz'].includes(destinationModel.kind),
-      origins: sourcePositions,
+      cube: ['rgb', 'log', 'xyz', 'lms'].includes(destinationModel.kind),
+      origins: originPositions,
+      lines: overlayLines(destinationModel),
     };
     views[0]?.draw(source, selectedPoint);
     if (state.target !== 'lut' || lutReady()) {
@@ -304,11 +377,15 @@ function updateModel() {
   }
   const plotTarget =
     state.plot === 'native' ? undefined : getTarget(state.plot);
-  sourcePositions = samples.map((point) =>
-    plotTarget
-      ? plotPosition(convertColor(point, plotTarget, state.source), plotTarget)
-      : plotPosition(point, getTarget(state.source)!),
-  );
+  const position = (model: ColorTarget | undefined) =>
+    samples.map((point) =>
+      model
+        ? plotPosition(convertColor(point, model, state.source), model)
+        : plotPosition(point, getTarget(state.source)!),
+    );
+  originPositions = position(plotTarget);
+  const compared = compareModel();
+  sourcePositions = compared ? position(compared) : originPositions;
   if (plotTarget && state.target !== 'lut') {
     targetPositions = targetCoordinates.map((point) =>
       plotPosition(
@@ -332,11 +409,17 @@ function updateModel() {
 }
 function updateLabels() {
   const source = getTarget(state.source)!;
-  sourceTitle.textContent = `源：${source.name}`;
-  viewStatus.textContent = source.white;
+  const compared = compareModel();
+  sourceTitle.textContent = compared
+    ? `对照：${compared.name}`
+    : `源：${source.name}`;
+  viewStatus.textContent = compared
+    ? `同一组 ${source.name} 采样`
+    : source.white;
+  sourceTag.textContent = compared ? 'COMPARE' : 'SOURCE';
   leftCanvas.setAttribute(
     'aria-label',
-    `源 ${source.name} 三维色体积；方向键旋转，加减号缩放，Home 重置`,
+    `${compared ? `对照 ${compared.name}` : `源 ${source.name}`} 三维色体积；方向键旋转，加减号缩放，Home 重置`,
   );
   leftCanvas.dataset.source = state.source;
   const target = getTarget(state.target);
@@ -347,7 +430,10 @@ function updateLabels() {
       : target
         ? '标准坐标转换'
         : 'RGB 颜色响应';
-  leftCaption.textContent = `R / G / B · ${state.density} × ${state.density} × ${state.density}`;
+  leftCaption.textContent = compared
+    ? compared.channels.join(' / ')
+    : `R / G / B · ${state.density} × ${state.density} × ${state.density}`;
+  renderLegend();
   rightCaption.textContent = target
     ? `${target.channels.join(' / ')}${state.strength < 1 ? ' · 图形插值 ' + Math.round(state.strength * 100) + '%' : ''}`
     : state.target === 'lut'
@@ -394,7 +480,7 @@ function updateSample() {
     state.plot === 'native' ? state.target : state.plot,
   );
   if (note && plotModel)
-    note.textContent = ['hsl', 'hsv'].includes(plotModel.kind)
+    note.textContent = ['hsl', 'hsv', 'hexcone'].includes(plotModel.kind)
       ? 'HSL / HSV 为圆柱参数示意图；S 为半径，L / V 为高度，距离不表示感知色差。'
       : state.equalAxes
         ? `等单位轴比例：${plotModel.kind === 'lab' || plotModel.kind === 'lch' ? 'L*、a*、b* 均除以 200' : plotModel.kind === 'oklab' || plotModel.kind === 'oklch' ? 'L、a、b 均使用原始单位' : '笛卡尔坐标统一缩放'}。极坐标按圆柱展开；屏幕投影距离不是色差读数。`
@@ -502,7 +588,8 @@ function pick(index: number) {
   updateSample();
   draw();
 }
-function chooseTarget(id: string) {
+function chooseTarget(id: string, figure: VolumeFigure | null = null) {
+  activeFigure = figure;
   state.target = id;
   if (isLook() && state.plot === 'native') state.plot = 'oklab';
   plotSelect.value = state.plot;
@@ -510,10 +597,116 @@ function chooseTarget(id: string) {
   mobileTarget.value = id;
   state.strength = 1;
   strength.set(1);
+  syncCompareSelect();
   renderTargets();
+  renderFigures();
   renderInspector();
   renderDisplayControls();
+  renderOverlayControls();
   updateModel();
+}
+/** The comparison model only applies to native plots of standard targets. */
+function syncCompareSelect() {
+  compareSelect.value = state.compare;
+  compareSelect.disabled = isLook() || state.plot !== 'native';
+}
+/** Resample the source gamut; positions are recomputed by updateModel(). */
+function resample() {
+  samples = createSourceSamples(state.density, state.source);
+  sourceColors = samples.map((point) =>
+    convertColor(point, getTarget('srgb')!, state.source),
+  );
+  selectedPoint = clamp(selectedPoint, 0, samples.length - 1);
+}
+function applyFigure(figure: VolumeFigure) {
+  stopRotation();
+  Object.assign(state, {
+    compare: '',
+    overlayOptimal: false,
+    overlayPointer: false,
+    gradient: '',
+    plot: 'native',
+    source: 'srgb',
+    pointSize: 1,
+    ...figure.state,
+  });
+  if (figure.view) Object.assign(state, figure.view);
+  resample();
+  sourceSelect.value = state.source;
+  densitySelect.value = String(state.density);
+  chooseTarget(figure.state.target, figure);
+}
+function renderFigures() {
+  figureList.replaceChildren(
+    ...volumeFigures.map((figure) => {
+      const control = el(
+        'button',
+        {
+          type: 'button',
+          class: 'figure-button',
+          'data-figure': figure.id,
+          'aria-pressed': String(activeFigure?.id === figure.id),
+        },
+        el('strong', {}, figure.title),
+        el('span', {}, figure.caption),
+      );
+      control.addEventListener('click', () => applyFigure(figure));
+      return control;
+    }),
+  );
+  mobileFigure.value = activeFigure?.id ?? '';
+}
+function renderLegend() {
+  const items: [string, string][] = [];
+  if (state.overlayOptimal)
+    items.push([
+      optimalOverlay().color,
+      '最优色边界（等能白 E，经 Bradford 适配到 D65）',
+    ]);
+  if (state.overlayPointer)
+    items.push([
+      pointerOverlay().color,
+      'Pointer 色域（实测物体色，CIELAB L* 15–90）',
+    ]);
+  if (state.gradient)
+    gradientModes.forEach((mode) => items.push([mode.color, mode.name]));
+  legend.hidden = !items.length;
+  interactionHint.hidden = items.length > 0;
+  legend.replaceChildren(
+    ...items.map(([color, label]) =>
+      el('span', {}, el('i', { style: `background:${color}` }), label),
+    ),
+  );
+}
+function renderOverlayControls() {
+  const gradient = el(
+    'select',
+    { id: 'gradient-pair', 'aria-label': '渐变路径' },
+    el('option', { value: '' }, '渐变路径：关闭'),
+    ...gradientPairs.map((pair) =>
+      el('option', { value: pair.id }, `渐变路径：${pair.name}`),
+    ),
+  );
+  gradient.value = state.gradient;
+  gradient.addEventListener('change', () => {
+    state.gradient = gradient.value;
+    updateLabels();
+    draw();
+  });
+  overlayControls.replaceChildren(
+    el('span', { class: 'overlay-title' }, '叠加'),
+    toggle('overlay-optimal', '最优色边界', state.overlayOptimal, (value) => {
+      state.overlayOptimal = value;
+      updateLabels();
+      draw();
+    }),
+    toggle('overlay-pointer', 'Pointer 色域', state.overlayPointer, (value) => {
+      state.overlayPointer = value;
+      updateLabels();
+      draw();
+    }),
+    gradient,
+  );
 }
 function renderTargets() {
   const groups = [...new Set(colorTargets.map((target) => target.group))];
@@ -744,34 +937,44 @@ function renderInspector() {
   );
   if (target) {
     content.append(
-      el('div', { class: 'stage-category' }, icon('cube'), 'COLOR SPACE'),
-      el('h3', {}, target.name),
-      el('p', { class: 'english-title' }, `参考白：${target.white}`),
+      el('div', { class: 'stage-category' }, icon('cube'), '看点'),
+      el('h3', {}, activeFigure?.title ?? target.name),
       el(
         'p',
-        { class: 'stage-description' },
-        state.source === 'srgb'
-          ? target.description
-          : `将 ${getTarget(state.source)!.name} 色域采样转换为 ${target.name} 的 ${target.channels.join('、')} 坐标。目标解码后的实际颜色统一转为 sRGB 显示；无法还原输入色的样本会标记。`,
-      ),
-      el(
-        'div',
-        { class: 'geometry-note' },
-        el('span', { class: 'eyebrow' }, '转换路径'),
-        el(
-          'p',
-          {},
-          state.source === 'srgb'
-            ? target.route
-            : `${getTarget(state.source)!.name} → 传递函数 / 矩阵 / 必要白点适配 → ${target.name}`,
-        ),
+        { class: 'figure-highlight' },
+        activeFigure?.highlight ?? target.highlight ?? target.description,
       ),
       sampleInspector(),
-      el('p', { class: 'inspector-hint', id: 'plot-scale-note' }),
       el(
-        'p',
-        { class: 'inspector-hint' },
-        `源：${getTarget(state.source)!.name}，参考白 ${getTarget(state.source)!.white}。${state.source === 'acescc' ? '采样 ACEScc 中对应线性 0–1 的编码范围。' : '各通道在 0–1 范围重新等距采样。'} 保留目标坐标；编码自身的负值或上限限制可能造成颜色损失，与最终 sRGB 着色裁剪分别报告。`,
+        'details',
+        { class: 'conversion-details' },
+        el('summary', {}, '转换细节'),
+        el('p', { class: 'english-title' }, `参考白：${target.white}`),
+        el(
+          'p',
+          { class: 'stage-description' },
+          state.source === 'srgb'
+            ? target.description
+            : `将 ${getTarget(state.source)!.name} 色域采样转换为 ${target.name} 的 ${target.channels.join('、')} 坐标。目标解码后的实际颜色统一转为 sRGB 显示；无法还原输入色的样本会标记。`,
+        ),
+        el(
+          'div',
+          { class: 'route-note' },
+          el('span', { class: 'eyebrow' }, '转换路径'),
+          el(
+            'p',
+            {},
+            state.source === 'srgb'
+              ? target.route
+              : `${getTarget(state.source)!.name} → 传递函数 / 矩阵 / 必要白点适配 → ${target.name}`,
+          ),
+        ),
+        el('p', { class: 'inspector-hint', id: 'plot-scale-note' }),
+        el(
+          'p',
+          { class: 'inspector-hint' },
+          `源：${getTarget(state.source)!.name}，参考白 ${getTarget(state.source)!.white}。${state.source === 'acescc' ? '采样 ACEScc 中对应线性 0–1 的编码范围。' : '各通道在 0–1 范围重新等距采样。'} 保留目标坐标；编码自身的负值或上限限制可能造成颜色损失，与最终 sRGB 着色裁剪分别报告。`,
+        ),
       ),
     );
   } else if (state.target === 'lut') {
@@ -1017,14 +1220,10 @@ const densitySelect = el(
 densitySelect.value = String(state.density);
 densitySelect.addEventListener('change', () => {
   state.density = Number(densitySelect.value);
-  samples = createSourceSamples(state.density, state.source);
-  sourcePositions = samples.map((point) =>
-    plotPosition(point, getTarget(state.source)!),
-  );
-  sourceColors = samples.map((point) =>
-    convertColor(point, getTarget('srgb')!, state.source),
-  );
-  selectedPoint = clamp(selectedPoint, 0, samples.length - 1);
+  // Figure captions can quote counts for a specific sampling density.
+  activeFigure = null;
+  renderFigures();
+  resample();
   updateModel();
   renderInspector();
 });
@@ -1032,15 +1231,13 @@ const reset = button(
   '全部重置',
   () => {
     Object.assign(state, defaultState());
-    samples = createSourceSamples(state.density, state.source);
-    sourcePositions = samples.map((point) =>
-      plotPosition(point, getTarget(state.source)!),
-    );
-    sourceColors = samples.map((point) =>
-      convertColor(point, getTarget('srgb')!, state.source),
-    );
+    resample();
     selectedPoint = (state.density - 1) * state.density ** 2;
     selectedStage = 'saturation';
+    activeFigure = volumeFigures[0];
+    syncCompareSelect();
+    renderOverlayControls();
+    renderFigures();
     densitySelect.value = String(state.density);
     sourceSelect.value = state.source;
     plotSelect.value = state.plot;
@@ -1076,16 +1273,41 @@ const sourceSelect = el(
 );
 sourceSelect.value = state.source;
 sourceSelect.addEventListener('change', () => {
+  activeFigure = null;
+  renderFigures();
   state.source = sourceSelect.value;
-  samples = createSourceSamples(state.density, state.source);
-  sourcePositions = samples.map((point) =>
-    plotPosition(point, getTarget(state.source)!),
-  );
-  sourceColors = samples.map((point) =>
-    convertColor(point, getTarget('srgb')!, state.source),
-  );
+  resample();
   updateModel();
   renderInspector();
+});
+const compareSelect = el(
+  'select',
+  { id: 'compare', 'aria-label': '左侧对照模型' },
+  el('option', { value: '' }, '左侧：源色域'),
+  ...colorTargets
+    .filter((target) => !['rgb', 'log'].includes(target.kind))
+    .map((target) =>
+      el('option', { value: target.id }, `左侧：${target.name}`),
+    ),
+);
+compareSelect.addEventListener('change', () => {
+  state.compare = compareSelect.value;
+  activeFigure = null;
+  renderFigures();
+  renderInspector();
+  updateModel();
+});
+const mobileFigure = el(
+  'select',
+  { 'aria-label': '色体积图例', class: 'mobile-figure' },
+  el('option', { value: '' }, '选择图例…'),
+  ...volumeFigures.map((figure) =>
+    el('option', { value: figure.id }, figure.title),
+  ),
+);
+mobileFigure.addEventListener('change', () => {
+  const figure = volumeFigures.find((item) => item.id === mobileFigure.value);
+  if (figure) applyFigure(figure);
 });
 const plotSelect = el(
   'select',
@@ -1099,6 +1321,7 @@ plotSelect.value = state.plot;
 plotSelect.options[0].disabled = isLook();
 plotSelect.addEventListener('change', () => {
   state.plot = plotSelect.value;
+  syncCompareSelect();
   updateModel();
 });
 const toolbar = el(
@@ -1114,9 +1337,12 @@ const toolbar = el(
   el(
     'div',
     { class: 'toolbar-selects' },
+    mobileFigure,
     el('label', { for: 'source' }, '源'),
     sourceSelect,
     mobileTarget,
+    el('label', { for: 'compare' }, '对照'),
+    compareSelect,
     el('label', { for: 'plot' }, '绘图'),
     plotSelect,
     el('label', { for: 'density' }, '采样'),
@@ -1178,10 +1404,25 @@ const lab = el(
       el(
         'div',
         { class: 'panel-heading' },
-        el('h2', {}, '目标模型'),
-        el('span', { class: 'mono muted' }, `${colorTargets.length} + 2`),
+        el('h2', {}, '图例'),
+        el('span', { class: 'mono muted' }, `${volumeFigures.length}`),
       ),
-      targetList,
+      el(
+        'div',
+        { class: 'sidebar-scroll' },
+        figureList,
+        el(
+          'div',
+          { class: 'all-models' },
+          el(
+            'div',
+            { class: 'models-heading' },
+            el('h2', {}, '全部模型'),
+            el('span', { class: 'mono muted' }, `${colorTargets.length} + 2`),
+          ),
+          targetList,
+        ),
+      ),
     ),
     el(
       'div',
@@ -1200,7 +1441,7 @@ const lab = el(
               {},
               el('span', { class: 'status-dot' }),
               sourceTitle,
-              el('span', { class: 'mono' }, 'SOURCE'),
+              sourceTag,
             ),
             viewStatus,
           ),
@@ -1226,15 +1467,10 @@ const lab = el(
           el('div', { class: 'canvas-caption' }, rightCaption),
         ),
       ),
-      el(
-        'div',
-        { class: 'interaction-hint' },
-        icon('rotate'),
-        el('span', {}, '拖动旋转 · 聚焦后滚轮缩放 · 方向键旋转'),
-        el('span', { class: 'sync-label' }, icon('link'), '视角同步'),
-      ),
+      el('div', { class: 'interaction-row' }, interactionHint, legend),
       cameraControls,
       displayControls,
+      overlayControls,
       el(
         'div',
         { class: 'mix-control' },
@@ -1265,16 +1501,23 @@ function exportImage() {
   ctx.fillRect(0, 0, 1600, 900);
   ctx.fillStyle = '#eeeff4';
   ctx.font = '24px sans-serif';
-  ctx.fillText(`SOURCE: ${getTarget(state.source)!.name}`, 40, 55);
+  const compared = compareModel();
+  ctx.fillText(
+    compared
+      ? `COMPARE: ${compared.name}`
+      : `SOURCE: ${getTarget(state.source)!.name}`,
+    40,
+    55,
+  );
   ctx.fillText(
     `TARGET: ${getTarget(state.target)?.name ?? (state.target === 'lut' ? lut!.name : 'Custom Look')}`,
     840,
     55,
   );
-  const sourcePlot = state.plot === 'native' ? state.source : state.plot;
+  const sourcePlot = sourcePlotModel();
   const targetPlot = state.plot === 'native' ? state.target : state.plot;
   ctx.font = '13px sans-serif';
-  ctx.fillText(`PLOT: ${getTarget(sourcePlot)!.name}`, 40, 82, 760);
+  ctx.fillText(`PLOT: ${sourcePlot.name}`, 40, 82, 760);
   ctx.fillText(`PLOT: ${getTarget(targetPlot)!.name}`, 840, 82, 720);
   [leftCanvas, rightCanvas].forEach((source, index) => {
     const ratio = Math.min(760 / source.width, 690 / source.height);
@@ -1365,7 +1608,12 @@ function exportImage() {
 export function mountLab() {
   document.title = '色体积工作台 · Chromatic Volume';
   lab.append(exportFeedback);
+  lab.prepend(viewTabs('volume'));
   root.replaceChildren(el('main', { class: 'workbench-page' }, lab), toast);
+  if (!restored) activeFigure = volumeFigures[0];
+  syncCompareSelect();
+  renderFigures();
+  renderOverlayControls();
   renderTargets();
   renderInspector();
   renderDisplayControls();

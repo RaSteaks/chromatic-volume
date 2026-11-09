@@ -12,6 +12,21 @@ export interface VolumeData {
   axes: [string, string, string];
   cube: boolean;
   origins?: Vec3[];
+  /** Polylines drawn over the points (overlays, lattices, paths). */
+  lines?: {
+    points: Vec3[];
+    color: string;
+    width: number;
+    closed?: boolean;
+    /** Optional per-vertex display colours, drawn as small dots. */
+    dots?: Vec3[];
+    /** Optional per-segment colours (lattice edges). */
+    segmentColors?: string[];
+  }[];
+  /** Explicit dot radius in CSS px; otherwise derived from the sampling density. */
+  radius?: number;
+  /** Draw the polylines underneath the points (lattice wireframes). */
+  linesBehind?: boolean;
 }
 interface Projected {
   x: number;
@@ -274,18 +289,20 @@ export class VolumeView {
         this.line(point, data.positions[i], '#b9a5fa35'),
       );
     }
+    if (data.linesBehind) this.drawLines(data);
     this.points = data.positions
       .map((point, index) => ({ ...this.project(point), index }))
       .sort((a, b) => a.z - b.z);
     const radius =
+      data.radius ??
       Math.max(
         2.2,
         (Math.min(this.width * 0.58, this.height * 0.64) /
           (this.state.density - 1)) *
           0.19,
       ) *
-      this.state.pointSize *
-      this.state.zoom;
+        this.state.pointSize *
+        this.state.zoom;
     // Cache shaded sprites. The cache is bounded across parameter drags and needs no GPU.
     if (this.sprites.size > 6000) this.sprites.clear();
     for (const p of this.points) {
@@ -327,6 +344,7 @@ export class VolumeView {
       }
       ctx.drawImage(sprite, p.x - radius, p.y - radius, radius * 2, radius * 2);
     }
+    if (!data.linesBehind) this.drawLines(data);
     if (selected !== null) {
       const point = this.points.find((p) => p.index === selected);
       if (point) {
@@ -365,6 +383,45 @@ export class VolumeView {
     }
     this.canvas.dataset.points = String(data.positions.length);
     this.canvas.dataset.camera = `${this.state.yaw.toFixed(3)},${this.state.pitch.toFixed(3)},${this.state.zoom.toFixed(3)}`;
+  }
+  private drawLines(data: VolumeData) {
+    const ctx = this.context;
+    for (const line of data.lines ?? []) {
+      if (line.points.length < 2) continue;
+      const projected = line.points.map((point) => this.project(point));
+      ctx.lineWidth = line.width;
+      ctx.lineJoin = 'round';
+      if (line.segmentColors) {
+        for (let i = 0; i + 1 < projected.length; i++) {
+          ctx.strokeStyle = line.segmentColors[i] ?? line.color;
+          ctx.beginPath();
+          ctx.moveTo(projected[i].x, projected[i].y);
+          ctx.lineTo(projected[i + 1].x, projected[i + 1].y);
+          ctx.stroke();
+        }
+      } else {
+        ctx.strokeStyle = line.color;
+        ctx.beginPath();
+        projected.forEach((p, i) =>
+          i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y),
+        );
+        if (line.closed) ctx.closePath();
+        ctx.stroke();
+      }
+      if (line.dots) {
+        projected.forEach((p, i) => {
+          const rgb = line.dots![i];
+          if (!rgb) return;
+          ctx.fillStyle = `rgb(${rgb.map((v) => Math.round(clamp(v) * 255)).join(',')})`;
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, 3.2, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.strokeStyle = line.color;
+          ctx.lineWidth = 1;
+          ctx.stroke();
+        });
+      }
+    }
   }
   destroy() {
     this.observer.disconnect();

@@ -1,4 +1,5 @@
 import './color-management';
+import './spaces';
 import Color from 'colorjs.io';
 import { createSamples, type Vec3 } from './model';
 
@@ -23,7 +24,15 @@ export interface ColorTarget {
     | 'xyz'
     | 'hsl'
     | 'hsv'
-    | 'log';
+    | 'log'
+    | 'ycbcr'
+    | 'hexcone'
+    | 'lms'
+    | 'ipt'
+    | 'jzazbz'
+    | 'zcam';
+  /** What to look at in the figure: the visual takeaway, not the conversion. */
+  highlight?: string;
 }
 const rgb = (
   id: string,
@@ -197,7 +206,7 @@ export const colorTargets: ColorTarget[] = [
   ),
   rgb(
     'acescg',
-    'ACEScg',
+    'ACEScg · AP1',
     'ACES D60',
     '转换为 AP1 基色、线性光编码与 ACES 白点。输入仍是 0–1 的 sRGB 样本，不包含额外场景动态范围。',
   ),
@@ -252,6 +261,162 @@ colorTargets.push(
     'Rec.709 基色与 BT.1886 显示 EOTF；本预设黑位 0、白位 100 cd/m²，等价于 Gamma 2.4。LUT 配置可调整黑白位。',
   ),
 );
+const wide = (id: string, name: string, description: string) => ({
+  ...rgb(id, name, 'D65', description),
+  group: '宽色域 / 摄影机',
+  route: '源 → XYZ → 目标基色（线性光）',
+  layout: 'R、G、B 为线性光 0–1；不裁剪坐标。',
+});
+colorTargets.push(
+  wide(
+    'dwg-linear',
+    'DaVinci Wide Gamut',
+    'DaVinci Resolve 的工作色域，基色远超可见光谱轨迹，用于在调色中容纳所有摄影机色域。这里使用线性光坐标。',
+  ),
+  wide(
+    'camera-arri4',
+    'ARRI Wide Gamut 4',
+    'ARRI ALEXA 35 的摄影机色域（线性）。与 LogC4 搭配用于记录。',
+  ),
+  wide(
+    'camera-sgamut3',
+    'S-Gamut3',
+    'Sony 摄影机色域（线性），比 Rec.2020 更宽；常与 S-Log3 搭配。',
+  ),
+  {
+    id: 'ycbcr709',
+    name: 'Y′CbCr · BT.709',
+    group: '视频信号',
+    channels: ['Y′', 'Cb', 'Cr'],
+    axes: ['Cb', 'Y′', 'Cr'],
+    white: 'D65',
+    description:
+      '视频信号把 R′G′B′ 拆成亮度 Y′ 与两个色差 Cb、Cr。这里用 BT.709 系数作用于 sRGB 编码值，全范围。',
+    route: 'sRGB 编码 R′G′B′ → BT.709 线性组合 → Y′、Cb、Cr',
+    layout: 'Y′ 为 0–1 竖轴，Cb、Cr 为 ±0.5 水平轴，三轴同单位。',
+    kind: 'ycbcr',
+    highlight:
+      '从 Y′ 轴正下方看就是矢量示波器（选图例「Y′CbCr：矢量图与波形」）：六个角依次是 R、Mg、B、Cy、G、Yl。「俯视」从上方看，得到的是左右镜像的版本；点「正视」，竖轴就是波形示波器上的亮度。',
+  },
+  {
+    id: 'hsv-hexcone',
+    name: 'HSV 六棱锥',
+    group: '圆柱模型',
+    channels: ['H°', 'C', 'V'],
+    axes: ['红 C', 'V', '绿 C'],
+    white: 'D65 / sRGB',
+    description:
+      'HSV 的原始几何：色相沿六边形走一圈，半径是色度 C = max − min，高度是 V = max。黑色收成锥尖。',
+    route: 'sRGB → max、min → H、C、V',
+    layout: '水平面为六边形投影，C = 1 时到达顶点；V 为高度。参数示意图。',
+    kind: 'hexcone',
+    highlight:
+      '同一个 RGB 立方体，从白点方向看下去就是六棱锥：纯色在顶面六个角，黑色在锥尖。',
+  },
+  {
+    id: 'hsl-bicone',
+    name: 'HSL 双六棱锥',
+    group: '圆柱模型',
+    channels: ['H°', 'C', 'L'],
+    axes: ['红 C', 'L', '绿 C'],
+    white: 'D65 / sRGB',
+    description:
+      'HSL 的原始几何：半径为色度 C，高度为 L = (max + min) / 2。纯色都落在 L = 0.5 的腰线上。',
+    route: 'sRGB → max、min → H、C、L',
+    layout: '水平面为六边形投影，L 为高度。参数示意图。',
+    kind: 'hexcone',
+    highlight:
+      '黑、白各占一个锥尖，所有纯色挤在中间的六边形腰线上——这就是 HSL「明度」与感知亮度对不上的原因。',
+  },
+  {
+    id: 'lms-hpe',
+    name: 'LMS 视锥响应',
+    group: '视觉与 HDR',
+    channels: ['L', 'M', 'S'],
+    axes: ['L', 'M', 'S'],
+    white: 'D65（归一化）',
+    description:
+      '长、中、短波视锥的响应。使用 Hunt–Pointer–Estévez 矩阵并归一化到 D65，与 IPT 所用矩阵相同。',
+    route: 'XYZ D65 → HPE 矩阵 → L、M、S',
+    layout: 'L、M、S 三轴同单位，白点为 (1, 1, 1)。',
+    kind: 'lms',
+    highlight:
+      'L 与 M 视锥的响应高度重叠，整个体积被压成一条贴着对角线的细长形状。',
+  },
+  {
+    id: 'ipt',
+    name: 'IPT',
+    group: '视觉与 HDR',
+    channels: ['I', 'P', 'T'],
+    axes: ['P', 'I', 'T'],
+    white: 'D65',
+    description:
+      'Ebner & Fairchild（1998）为色相均匀设计的对立色空间：LMS 经 0.43 次幂压缩后线性组合。Oklab 和 ICtCp 都沿用了这一结构。',
+    route: 'XYZ D65 → HPE LMS → 幂 0.43 → I、P、T',
+    layout: '三轴统一缩放 0.8，I 为竖轴。',
+    kind: 'ipt',
+    highlight:
+      '与 Oklab 并排看：骨架几乎一样，差别在蓝色一角——IPT 当初就是为了修正 CIELAB 的蓝色色相弯曲。',
+  },
+  {
+    id: 'jzazbz',
+    name: 'Jzazbz',
+    group: '视觉与 HDR',
+    channels: ['Jz', 'az', 'bz'],
+    axes: ['az', 'Jz', 'bz'],
+    white: 'D65 · 203 cd/m²',
+    description:
+      'Safdar 等（2017）面向 HDR 的均匀色彩空间，用 PQ 曲线压缩视锥响应，可以覆盖到 10000 cd/m²。这里把参考白放在 203 cd/m²。',
+    route: 'XYZ → 绝对亮度 203 cd/m² → LMS → PQ → Jz、az、bz',
+    layout: '三轴统一放大 4 倍；SDR 白点 Jz ≈ 0.22。',
+    kind: 'jzazbz',
+    highlight:
+      'SDR 白只到 Jz ≈ 0.22，体积压在底部；上方大片空间留给 HDR 高光。',
+  },
+  {
+    id: 'zcam',
+    name: 'ZCAM',
+    group: '视觉与 HDR',
+    channels: ['J', 'C', 'h°'],
+    axes: ['C cos h', 'J', 'C sin h'],
+    white: 'D65 · 203 cd/m²',
+    description:
+      'Safdar 等（2021）基于 Jzazbz 的 HDR 色貌模型。观看条件：白 203 cd/m²，适应亮度与背景为白的 20%，普通环境。常数已与 Colour Science 0.4.4 逐项核对。',
+    route: 'XYZ → CAT02 适应 → Iz、az、bz → 明度 J、色度 C、色相 h',
+    layout: 'J 为 0–100 竖轴；C 与 J 同单位（除以 100）。',
+    kind: 'zcam',
+    highlight:
+      '色貌模型考虑了观看条件：同一批颜色的色度 C 比 Lab 小得多，体积显得瘦高。',
+  },
+);
+const highlights: Record<string, string> = {
+  oklab:
+    '立方体被扭成斜置的块：黄色角浮到高处，蓝色角沉到底部。每个色相的最亮点高度都不一样。',
+  oklch: '与 Oklab 同一形状，只是读数换成明度、色度、色相角。',
+  lab: '对立色坐标的经典版本。和 Oklab 对比，注意蓝紫一角的伸展方向。',
+  'lab-d65': '与 D50 版本形状几乎相同，参考白不同导致整体轻微偏移。',
+  lch: 'CIELAB 的圆柱读法，形状与 Lab D50 一致。',
+  luv: 'u*v* 平面比 Lab 更宽更扁，红色一角明显外凸。可在「对照」里选 CIELAB 并排比较。',
+  lchuv: 'CIELUV 的圆柱读法，形状不变。',
+  'xyz-d65':
+    '线性三刺激值中，RGB 立方体变成一个斜切的平行六面体：每条棱都是一个原色的强度。',
+  'xyz-d50': '同一个平行六面体，经 Bradford 适配后整体向 D50 白点偏转。',
+  srgb: '两侧是同一个立方体：恒等映射，用来校准眼睛。',
+  'srgb-linear':
+    '去掉传递函数后，均匀编码的样本向暗部聚拢——编码把更多码值留给了暗部。',
+  p3: 'sRGB 立方体在 P3 坐标里缩进内部：P3 能表示的颜色比 sRGB 多一圈。',
+  rec2020: 'sRGB 在 Rec.2020 里缩得更小，留出的外圈就是宽色域。',
+  a98rgb: '绿色方向比 sRGB 宽，sRGB 立方体在其中主要向绿—青方向收缩。',
+  prophoto: '基色超出可见光谱，sRGB 只占其中一小块。',
+  acescg: 'ACES AP1：比 Rec.2020 略宽，是 ACES 管线中的渲染工作空间。',
+  acescc: '对数编码把暗部大幅展开，立方体的底部被拉长。',
+  hsl: '圆柱参数图：纯色停在中间高度，黑白收向两端。另见「HSL 双六棱锥」。',
+  hsv: '圆柱参数图：色相绕轴，饱和度为半径。另见「HSV 六棱锥」。',
+  rec709: 'BT.709 OETF 与 sRGB 曲线略有不同，暗部的点距随之改变。',
+  rec1886: 'BT.1886 是显示端曲线；黑位为 0 时与 Gamma 2.4 相同。',
+};
+for (const target of colorTargets)
+  target.highlight ??= highlights[target.id] ?? target.description;
 export type TargetId = string;
 export function getTarget(id: string): ColorTarget | undefined {
   return colorTargets.find((target) => target.id === id);
@@ -285,13 +450,19 @@ export function convertColor(
     .coords.map((value) => (value === null ? Number.NaN : value)) as Vec3;
   // Matrix/adaptation roundoff can make a neutral RGB have tiny nonzero saturation.
   // HSL uses the CSS powerless-hue threshold (S in percent); HSV shares that convention.
-  if (target.kind === 'hsl' || target.kind === 'hsv') {
+  if (['hsl', 'hsv', 'hexcone'].includes(target.kind)) {
     const encoded = color.to('srgb').coords.map((value) => value ?? 0);
+    // Equal channels in an RGB source are that space's white direction by
+    // definition; rounded vendor matrices must not invent a hue for them.
+    const neutralSource =
+      ['rgb', 'log'].includes(getTarget(source)?.kind ?? '') &&
+      Math.max(...rgb) - Math.min(...rgb) <= 1e-12;
     // At white, HSL's saturation denominator approaches zero and amplifies
     // channel roundoff. Check RGB neutrality as well as the saturation threshold.
     if (
+      neutralSource ||
       Math.max(...encoded) - Math.min(...encoded) <= 1e-12 ||
-      Math.abs(coords[1]) <= 0.001
+      Math.abs(coords[1]) <= (target.kind === 'hexcone' ? 1e-5 : 0.001)
     ) {
       coords[0] = Number.NaN;
       coords[1] = 0;
@@ -336,9 +507,36 @@ export function targetPosition(
       return polar(r / 100, q, p, 1 / 200);
     case 'log':
       return coords.map((value) => (value + 0.36) / 0.92 - 0.5) as Vec3;
+    case 'ycbcr':
+      return [q, p - 0.5, r];
+    case 'hexcone': {
+      const [x, z] = hexagonPoint(p, q);
+      return [x * 0.5, r - 0.5, z * 0.5];
+    }
+    case 'ipt':
+      return [q * 0.8, (p - 0.5) * 0.8, r * 0.8];
+    case 'jzazbz':
+      return [q * 4, p * 4 - 0.5, r * 4];
+    case 'zcam':
+      return polar(p / 100, q, r, equalAxes ? 1 / 100 : 1 / 50);
     default:
       return coords.map((value) => value - 0.5) as Vec3;
   }
+}
+/** Point on the unit hexagon (vertices at 0°, 60°, …) scaled by chroma. */
+export function hexagonPoint(hue: number, chroma: number): [number, number] {
+  const h = ((((Number.isFinite(hue) ? hue : 0) % 360) + 360) % 360) / 60;
+  const k = Math.floor(h) % 6,
+    f = h - Math.floor(h);
+  const vertex = (n: number) => [
+    Math.cos((n * Math.PI) / 3),
+    Math.sin((n * Math.PI) / 3),
+  ];
+  const [a, b] = [vertex(k), vertex(k + 1)];
+  return [
+    ((1 - f) * a[0] + f * b[0]) * chroma,
+    ((1 - f) * a[1] + f * b[1]) * chroma,
+  ];
 }
 export function sourcePosition(rgb: Vec3): Vec3 {
   return rgb.map((value) => value - 0.5) as Vec3;
@@ -383,6 +581,46 @@ export function plotGuides(target: ColorTarget, equalAxes: boolean) {
         [90, 100, 0],
       ];
       values = [100, 100, 100];
+      break;
+    case 'ycbcr':
+      ends = [
+        [0, 0.5, 0],
+        [1, 0, 0],
+        [0, 0, 0.5],
+      ];
+      values = [0.5, 1, 0.5];
+      break;
+    case 'hexcone':
+      ends = [
+        [0, 1, 0],
+        [0, 0, 1],
+        [120, 1, 0],
+      ];
+      values = [1, 1, 1];
+      break;
+    case 'ipt':
+      ends = [
+        [0, 0.5, 0],
+        [1, 0, 0],
+        [0, 0, 0.5],
+      ];
+      values = [0.5, 1, 0.5];
+      break;
+    case 'jzazbz':
+      ends = [
+        [0, 0.1, 0],
+        [0.25, 0, 0],
+        [0, 0, 0.1],
+      ];
+      values = [0.1, 0.25, 0.1];
+      break;
+    case 'zcam':
+      ends = [
+        [0, 30, 0],
+        [100, 0, 0],
+        [0, 30, 90],
+      ];
+      values = [30, 100, 30];
       break;
     case 'log':
       origin = [-0.36, -0.36, -0.36];

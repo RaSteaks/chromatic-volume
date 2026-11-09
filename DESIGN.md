@@ -36,9 +36,9 @@ components:
 
 ## Overview
 
-This is a color-science workbench for Chinese-speaking users exploring RGB samples, target color coordinates, and look transformations. The direct task is to choose a named target and inspect the relationship between source and target. The user's explicit direction is a workbench only: no brand header, hero, preset cards, guide sections, or marketing footer.
+This is a color-science figure collection for Chinese-speaking users. Six tabs group the figures by kind: 色体积 (the paired-volume workbench), 色彩变换 (morphing 3D lattices), 色度图, 光谱, 曲线 and 像素. The emphasis is on what each figure shows, not on how a conversion is computed: every figure opens with a short 看点 (what to look at), and conversion routes, formulas and scope notes sit in a collapsed 转换细节 block or a quiet note under it. There is still no brand hero, preset cards, guide sections, or marketing footer: the figure is visible immediately on entry.
 
-The signature is the synchronized pair of shaded color-point volumes. All surrounding surfaces stay neutral and restrained, like a grading instrument. Avoid decorative rainbow UI, promotional copy, and full-page explanations.
+The signature remains the synchronized pair of color-point volumes on the first tab; the other tabs share the same neutral instrument styling. Avoid decorative rainbow UI, promotional copy, and full-page explanations.
 
 ## Colors
 
@@ -52,7 +52,7 @@ Use system fonts, with Chinese fallbacks, so the application runs without font-n
 
 ## Layout
 
-The desktop grid is target list / paired canvases / target inspector. The workbench begins at 16 px from the viewport and fills the available desktop area, with a minimum usable drawing height. The target list and desktop inspector own their internal scrolling; the page may scroll on short viewports. At 1200 px the inspector moves below. At 640 px the sidebar is replaced by a native model select, and the page scrolls naturally. Both canvases retain identical drawing dimensions for meaningful comparisons.
+A 44 px tab bar (`.view-tabs`, a `nav`, never a `header`) sits at the top of the framed workbench. On the volume tab the desktop grid is figure list + all models / paired canvases / 看点 inspector; on figure tabs it is figure list / figure stage (title, canvas, one control row) / 看点 panel with live readouts and a scope note. The workbench begins at 16 px from the viewport and fills the available desktop area, with a minimum usable drawing height. Sidebars and the desktop inspector own their internal scrolling. At 1200 px the inspector moves below. At 640 px the sidebar is replaced by a native figure select, and the page scrolls naturally. Both volume canvases retain identical drawing dimensions for meaningful comparisons.
 
 ## Elevation & Depth
 
@@ -86,7 +86,11 @@ The workbench uses `--radius: 10px`, controls 5–7 px. A viewport-wide mobile w
 
 ## Do's and Don'ts
 
-- Keep the actual workbench visible immediately on entry.
+- Keep the actual workbench visible immediately on entry; figure tabs open on their first figure.
+- Lead with the 看点 sentence; keep conversion detail collapsed or in the scope note.
+- Label approximations honestly in the figure note (ACES fit is not ACES 2.0, AgX is a polynomial approximation, H&D and Kubelka–Munk pigments are illustrative).
+- Tone maps return linear display RGB and share sRGB display encoding. Bayer sampling and interpolation operate in linear light; its displayed error and PSNR use the explicitly labeled sRGB code domain. The optimal-solid overlay is an illuminant-E reflectance limit adapted to D65, not a boundary of all visible stimuli; outside counts are not imaginary-color counts. Comparison exports use the same plot-model resolution as the canvas.
+- Measured data (CIE observers, Pointer, MacAdam, TM-30 CES results, camera sensitivities) comes from `npm run generate:figure-data`; never hand-type tables.
 - Share the renderer and state between the website and embedded usage.
 - Keep `/preview` an automatic presentation of the actual sRGB → Oklab math and renderer, without a toolbar or nested iframe. The full website remains responsive to its own viewport; the blog owns the outer viewer toolbar.
 - Never claim teaching stages reproduce FilmLight Eab or Chromogen.
