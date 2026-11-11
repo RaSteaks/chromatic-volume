@@ -1,6 +1,6 @@
 import Color from 'colorjs.io';
 import tm30 from '../data/tm30.json' with { type: 'json' };
-import { el } from '../dom';
+import { el, toggle } from '../dom';
 import type { Vec3 } from '../model';
 import {
   bradford,
@@ -14,7 +14,9 @@ import {
   A_SPD,
   blackbodySpd,
   CAMERAS,
+  cctDuv,
   CMF,
+  CMF_10,
   D65_SPD,
   emissionToXYZ,
   metamericPair,
@@ -22,7 +24,9 @@ import {
   RGB_CMF,
   spectralLocus,
   WAVELENGTHS,
+  xyToUvPrime,
 } from '../science/spectral';
+import { mixing } from './mixing';
 import '../targets';
 import type { FigureContext, FigureDef, FigureGroup } from './page';
 import {
@@ -36,6 +40,8 @@ import {
   label,
   playback,
   polyline,
+  probe,
+  readoutTable,
   segmented,
   select,
   SERIES,
@@ -114,18 +120,27 @@ function cmfFigure(kind: 'xyz' | 'rgb') {
             { name: 'ḡ', values: RGB_CMF.g, color: SERIES[1] },
             { name: 'b̄', values: RGB_CMF.b, color: SERIES[2] },
           ];
-    const all = curves.flatMap((c) => c.values);
+    const ten = [CMF_10.x, CMF_10.y, CMF_10.z];
+    // Reserve space for both observers so toggling the overlay keeps the
+    // same scale and the taller 10° z̄ peak remains fully visible.
+    const all = [
+      ...curves.flatMap((c) => c.values),
+      ...(kind === 'xyz' ? ten.flat() : []),
+    ];
     const range: [number, number] = [
       Math.min(0, ...all) * 1.1,
       Math.max(...all) * 1.08,
     ];
     let lambda = 520;
+    let showTen = false;
+    let lastFrame: Frame | null = null;
     const info = el('div', { class: 'readout-list' });
     readout.append(info);
     const plot = createCanvas(
       host,
       (ctx, width, height) => {
         const f = frame(width, height, LAMBDA, range, spectralPad);
+        lastFrame = f;
         if (range[0] < 0) {
           ctx.fillStyle = '#e0797a14';
           ctx.fillRect(f.left, f.sy(0), f.width, f.top + f.height - f.sy(0));
@@ -159,6 +174,10 @@ function cmfFigure(kind: 'xyz' | 'rgb') {
             1,
           );
         cursor(ctx, f, lambda);
+        if (showTen)
+          curves.forEach((c, i) =>
+            polyline(ctx, f, series(ten[i]), c.color + 'a0', 1.4, [5, 3]),
+          );
         curves.forEach((c) => {
           polyline(ctx, f, series(c.values), c.color, 2);
           dot(ctx, f.sx(lambda), f.sy(at(c.values, lambda)), c.color);
@@ -196,17 +215,25 @@ function cmfFigure(kind: 'xyz' | 'rgb') {
         at(CMF.z, lambda),
       ];
       const [x, y] = xyzToXy(xyz);
+      const uv = xyToUvPrime([x, y]);
+      const tenValues = ten.map((values) => at(values, lambda)) as Vec3;
+      const [x10, y10] = xyzToXy(tenValues);
       info.replaceChildren(
-        el('strong', {}, `${lambda.toFixed(0)} nm 单色光`),
-        ...curves.map((c, i) =>
-          el('span', {}, `${c.name}  ${values[i].toFixed(4)}`),
+        el('strong', {}, `λ = ${lambda.toFixed(0)} nm`),
+        readoutTable(
+          kind === 'xyz' && showTen ? ['', '2°', '10°'] : ['', '值'],
+          curves.map((c, i) =>
+            kind === 'xyz' && showTen
+              ? [c.name, values[i].toFixed(5), tenValues[i].toFixed(5)]
+              : [c.name, values[i].toFixed(5)],
+          ),
         ),
         el('span', {}, `x ${x.toFixed(4)}  y ${y.toFixed(4)}`),
-        swatch(
-          '最接近的可显示颜色',
-          chromaticityColor(xyz),
-          '单色光都在 sRGB 之外，已裁剪',
-        ),
+        el('span', {}, `u′ ${uv[0].toFixed(4)}  v′ ${uv[1].toFixed(4)}`),
+        ...(showTen && kind === 'xyz'
+          ? [el('span', {}, `10°：x ${x10.toFixed(4)}  y ${y10.toFixed(4)}`)]
+          : []),
+        swatch('色样', chromaticityColor(xyz), '归一亮度，sRGB 外已裁剪'),
       );
       plot.redraw();
     };
@@ -225,8 +252,22 @@ function cmfFigure(kind: 'xyz' | 'rgb') {
       },
     });
     controls.append(play.element);
+    if (kind === 'xyz')
+      controls.append(
+        toggle('cmf-10', '叠加 CIE 1964 10°', false, (on) => {
+          showTen = on;
+          update();
+        }),
+      );
+    const stopProbe = probe(plot.canvas, (p) => {
+      if (!p || !lastFrame) return;
+      play.pause();
+      const value = Math.round(Math.min(Math.max(lastFrame.ix(p.x), 380), 780));
+      play.set(value);
+    });
     update();
     return () => {
+      stopProbe();
       play.destroy();
       plot.destroy();
     };
@@ -234,6 +275,8 @@ function cmfFigure(kind: 'xyz' | 'rgb') {
 }
 
 // ------------------------------------------------------------ blackbody
+/** Wien displacement constant, nm·K (CODATA 2018). */
+const WIEN = 2.897771955e6;
 const locus = spectralLocus();
 function blackbody({ host, controls, readout }: FigureContext) {
   let temperature = 3000;
@@ -295,15 +338,27 @@ function blackbody({ host, controls, readout }: FigureContext) {
   const update = () => {
     const xyz = emissionToXYZ(blackbodySpd(temperature));
     const [x, y] = xyzToXy(xyz);
+    const peak = WIEN / temperature;
+    const result = cctDuv([x, y]);
+    const uv = xyToUvPrime([x, y]);
     info.replaceChildren(
-      el('strong', {}, `${Math.round(temperature)} K 黑体`),
-      el('span', {}, `x ${x.toFixed(4)}  y ${y.toFixed(4)}`),
-      swatch('白点颜色（亮度归一）', chromaticityColor(xyz)),
+      el('strong', {}, `T = ${Math.round(temperature)} K`),
+      el('span', {}, `${(1e6 / temperature).toFixed(1)} mired`),
       el(
         'span',
-        { class: 'muted' },
-        '色温越低越偏橙红，越高越偏蓝；6500 K 附近接近 D65 白。',
+        {},
+        `λmax ${peak.toFixed(0)} nm${peak > 780 || peak < 380 ? '（可见范围外）' : ''}`,
       ),
+      el('span', {}, `x ${x.toFixed(4)}  y ${y.toFixed(4)}`),
+      el('span', {}, `u′ ${uv[0].toFixed(4)}  v′ ${uv[1].toFixed(4)}`),
+      el(
+        'span',
+        {},
+        result
+          ? `CCT 反算 ${Math.round(result.cct)} K  Duv ${result.duv.toFixed(5)}`
+          : 'CCT 超出计算范围（1000–100000 K）',
+      ),
+      swatch('色度（归一亮度）', chromaticityColor(xyz)),
     );
     plot.redraw();
   };
@@ -400,10 +455,17 @@ function metamerism({ host, controls, readout }: FigureContext) {
       el('span', {}, `ΔE2000 = ${delta.toFixed(delta < 0.01 ? 4 : 2)}`),
       el(
         'span',
-        { class: 'muted' },
-        illuminant === 'd65'
-          ? '两条光谱完全不同，在 D65 下却是同一个颜色。'
-          : '换到 A 光源，两个样本分开了：这就是同色异谱。',
+        {},
+        `样本 1 xy ${xyzToXy(a)
+          .map((v) => v.toFixed(4))
+          .join(', ')}`,
+      ),
+      el(
+        'span',
+        {},
+        `样本 2 xy ${xyzToXy(b)
+          .map((v) => v.toFixed(4))
+          .join(', ')}`,
       ),
     );
     plot.redraw();
@@ -518,22 +580,25 @@ function tm30Figure({ host, controls, readout }: FigureContext) {
     'TM-30 色矢量图',
   );
   const update = () => {
+    const rcs = source.rcs;
+    const worst = rcs.reduce(
+      (best, v, i) => (Math.abs(v) > Math.abs(rcs[best]) ? i : best),
+      0,
+    );
+    const pct = (v: number) =>
+      `${v >= 0 ? '+' : '−'}${Math.abs(v).toFixed(1)}%`;
     info.replaceChildren(
       el('strong', {}, source.name),
-      el('span', {}, `Rf ${source.rf.toFixed(0)}   Rg ${source.rg.toFixed(0)}`),
-      el(
-        'span',
-        {},
-        `CCT ${Math.round(source.cct)} K   Duv ${source.duv.toFixed(4)}`,
-      ),
-      el(
-        'span',
-        { class: 'muted' },
-        source.rg > 101
-          ? '红线整体在圆外：比参考光源更鲜艳（Rg > 100）。'
-          : source.rg < 99
-            ? '红线整体缩进圆内：颜色比参考光源更灰（Rg < 100）。'
-            : '红线与圆几乎重合：颜色还原接近参考光源。',
+      readoutTable(
+        ['', '值'],
+        [
+          ['Rf', source.rf.toFixed(0)],
+          ['Rg', source.rg.toFixed(0)],
+          ['CCT', `${Math.round(source.cct)} K`],
+          ['Duv', source.duv.toFixed(4)],
+          ['Rcs,h1', pct(rcs[0])],
+          [`Rcs,h${worst + 1}（|最大|）`, pct(rcs[worst])],
+        ],
       ),
     );
     plot.redraw();
@@ -592,6 +657,8 @@ function solveFit(camera: {
   ) as Mat3;
   let error = 0,
     total = 0;
+  const channelError = [0, 0, 0],
+    channelTotal = [0, 0, 0];
   const fitted = camera.r.map((_, i) => {
     const value = multiply(M, [camera.r[i], camera.g[i], camera.b[i]]);
     const k = i + offset;
@@ -599,10 +666,18 @@ function solveFit(camera: {
     value.forEach((v, axis) => {
       error += (v - target[axis]) ** 2;
       total += target[axis] ** 2;
+      channelError[axis] += (v - target[axis]) ** 2;
+      channelTotal[axis] += target[axis] ** 2;
     });
     return value;
   });
-  return { M, fitted, offset, residual: Math.sqrt(error / total) };
+  return {
+    M,
+    fitted,
+    offset,
+    residual: Math.sqrt(error / total),
+    channels: channelError.map((e, i) => Math.sqrt(e / channelTotal[i])),
+  };
 }
 function cameraFigure({ host, controls, readout }: FigureContext) {
   const names = Object.keys(CAMERAS);
@@ -694,11 +769,14 @@ function cameraFigure({ host, controls, readout }: FigureContext) {
         {},
         `数据范围 ${camera.start}–${camera.start + (camera.r.length - 1) * 5} nm`,
       ),
-      el('span', {}, `拟合残差 ${(fit.residual * 100).toFixed(1)}%`),
-      el(
-        'span',
-        { class: 'muted' },
-        '残差为 0 才满足 Luther 条件：那时相机与人眼看到的同色异谱完全一致，一个固定矩阵就能把相机 RGB 准确转成 XYZ。',
+      readoutTable(
+        ['', '相对 RMS 残差'],
+        [
+          ['x̄', `${(fit.channels[0] * 100).toFixed(1)}%`],
+          ['ȳ', `${(fit.channels[1] * 100).toFixed(1)}%`],
+          ['z̄', `${(fit.channels[2] * 100).toFixed(1)}%`],
+          ['合计', `${(fit.residual * 100).toFixed(1)}%`],
+        ],
       ),
     );
     plot.redraw();
@@ -723,61 +801,113 @@ const figures: FigureDef[] = [
     id: 'cmf',
     number: 25,
     title: 'CIE 配色函数',
-    caption: '波长游标扫过 x̄ȳz̄',
+    conditions: 'CIE 1931 2° · 可叠加 CIE 1964 10° · 380–780 nm / 5 nm',
+    grade: 'reference',
     highlight:
-      '三条曲线描述任意光谱如何折算成 X、Y、Z。游标扫过时，右侧显示该波长单色光的三刺激值和颜色：ȳ 就是明视觉亮度曲线，在 555 nm 附近最高，两端的光几乎看不见。',
-    note: 'CIE 1931 2° 标准观察者，5 nm 间隔。单色光都在 sRGB 色域之外，色样已归一并裁剪。',
+      'x̄ 在 440 nm 附近的次峰让短波端色度几乎不动：380–420 nm 的光谱轨迹在 xy 中挤在 (0.17, 0.005) 附近。ȳ 即 V(λ)；叠加的 10° 函数中 ȳ₁₀ 不是光度函数。',
+    provenance: {
+      data: 'CIE 1931 2° 与 CIE 1964 10° 标准观察者（Colour Science 0.4.4）',
+      domain: '线性插值读取 5 nm 网格之间的波长',
+      approximation: '单色光都在 sRGB 外，色样按最大通道归一后裁剪',
+      reference: 'CIE 015:2018',
+    },
     mount: cmfFigure('xyz'),
   },
   {
     id: 'rgb-cmf',
     number: 26,
     title: 'RGB 配色函数',
-    caption: '带负值的原始实验数据',
+    conditions: 'Wright & Guild 1931 · 2° · 原色 700 / 546.1 / 435.8 nm',
+    grade: 'reference',
     highlight:
-      '用 700、546.1、435.8 nm 三个单色原色去匹配每个波长时，蓝绿一段怎么混都不够饱和，只能把红光加到待匹配的那一侧——于是 r̄ 出现负值。CIE 正是为了消除负值才定义了 XYZ。',
-    note: 'Wright & Guild 1931 2° RGB 配色函数（Colour Science 数据集）。',
+      'r̄ 在 440–545 nm 为负（极值约 515 nm），ḡ 在 400–435 nm、b̄ 在 550–625 nm 也有小幅负值：任何三个真实原色都无法匹配全部光谱色。XYZ 是对这组函数的线性变换，选择条件是全部非负且 ȳ = V(λ)。',
+    provenance: {
+      data: 'Wright & Guild 1931 2° RGB CMFs（Colour Science 0.4.4）',
+      domain: '原色单位按 CIE 1931 约定（等能白下三刺激值相等）',
+      reference: 'CIE 1931；Wright 1928–29；Guild 1931',
+    },
     mount: cmfFigure('rgb'),
   },
   {
     id: 'blackbody',
     number: 27,
     title: '黑体辐射',
-    caption: '2000 K 到 10000 K 的光谱与白点',
+    conditions: 'Planck · c₂ = 1.4388×10⁻² m·K · 560 nm 归一 · 2000–10000 K',
+    grade: 'reference',
     highlight:
-      '色温升高时，光谱的峰值从红外一侧移进可见光并向蓝端倾斜，白点沿普朗克轨迹从橙红走向蓝白（右上角小图）。',
-    note: '普朗克定律，c₂ = 1.4388×10⁻² m·K（CIE 15），每条曲线在 560 nm 处归一。',
+      'Wien 峰 λmax = b/T：约 3715 K 以下峰值在 780 nm 外，约 7625 K 以上移出 380 nm，可见区内只看到峰的一侧。色温轴按 mired（10⁶/T）近似感知均匀，高色温端相同的开尔文差对应的色度变化越来越小。',
+    provenance: {
+      data: '普朗克公式直接计算',
+      domain:
+        'CIE 1931 2°；色度由 380–780 nm / 5 nm 积分；CCT 反算用 CIE 1960 uv 最近点',
+      reference: 'CIE 015:2018（c₂ 取 ITS-90 值）',
+    },
     mount: blackbody,
   },
   {
     id: 'metamerism',
     number: 28,
     title: '同色异谱',
-    caption: 'D65 下相同，A 光源下不同',
+    conditions: 'D65 ↔ A · Bradford 适配到 D65 · ΔE2000',
+    grade: 'illustrative',
     highlight:
-      '两条反射光谱形状完全不同，在 D65 下的 XYZ 却完全相等（ΔE ≈ 0）。切换到白炽灯 A 光源，人眼适应新白点之后，两个样本立刻分开。',
-    note: '样本 2 = 样本 1 + 一条「同色异谱黑」：对 D65 加权配色函数正交的扰动，因此在 D65 下不改变 XYZ。光谱为构造示例，不是实测材料。A 光源下的颜色经 Bradford 适配到 D65 显示。',
+      '样本 2 = 样本 1 + metameric black（与 D65 加权配色函数正交的光谱分量），因此只在 D65 下不可见；换成 A，这个分量产生非零三刺激值，适配后的 ΔE00 即这对样本的照明同色异谱程度。',
+    provenance: {
+      data: '构造光谱，不是实测材料',
+      domain: 'CIE 1931 2°；A 光源下的颜色经 Bradford 适配到 D65 显示',
+      reference: 'Wyszecki & Stiles, Color Science, 2nd ed.（metameric black）',
+    },
     mount: metamerism,
   },
   {
     id: 'tm30',
     number: 29,
     title: 'TM-30 色矢量图',
-    caption: '99 条样本光谱的色相偏移',
+    conditions: 'ANSI/IES TM-30-18 · 99 CES · CAM02-UCS · 16 色相区间',
+    grade: 'reference',
     highlight:
-      '每个箭头从参考光源（虚线圆）指向被测光源下同一色相区间的平均颜色。箭头朝外表示更鲜艳，朝内表示更灰，沿圆周方向表示色相偏移。高压钠灯（HP1）被压成扁长的一条，大部分色相都明显变灰；三色 LED（LED-RGB1）则把红色和青绿推到圆外。',
-    note: 'ANSI/IES TM-30-18，用 99 条 CES 样本光谱在 CAM02-UCS 中离线计算（Colour Science 0.4.4），网页只负责绘图。扇区底色仅为示意。',
+      '箭头是每个色相区间内被测光源相对参考光源的平均 a′b′ 偏移，按参考半径归一。Rg 是两个多边形的面积比，Rf 来自 99 个样本的平均 ΔE′；HP1 与 LED-RGB1 的 Rg 分居两端，但 Rf 都偏低。',
+    provenance: {
+      data: '99 条 CES 光谱与各光源 SPD，Colour Science 0.4.4 离线计算',
+      domain:
+        'CIE 1964 10° · CAM02-UCS · 参考光源按 CCT 取黑体或 CIE D 系列（4000–5000 K 混合）',
+      approximation: '扇区底色仅示意',
+      reference: 'ANSI/IES TM-30-18',
+    },
     mount: tm30Figure,
   },
   {
     id: 'luther',
     number: 30,
     title: '相机灵敏度与 Luther 条件',
-    caption: '相机 RGB 能否线性变成 XYZ',
+    conditions: 'NPL 实测灵敏度 · 对 x̄ȳz̄ 的最小二乘 3×3 拟合',
+    grade: 'reference',
     highlight:
-      '上图是真实相机的 RGB 光谱灵敏度，下图把它们的最佳线性组合（虚线）叠在人眼配色函数上。两者对不齐的地方，就是相机与人眼「看法不同」的地方：无论用什么 3×3 矩阵，都会有颜色被转错。',
-    note: '相机数据为 NPL 测量（Colour Science 数据集）；Sigma SD Merrill 只有 400–680 nm，拟合仅在测量范围内进行。',
+      '残差不为零即不满足 Luther–Ives 条件：不存在把相机 RGB 精确变到 XYZ 的固定矩阵，某些对人眼同色异谱的光谱在相机中不同，反之亦然。右侧按通道列出残差。',
+    provenance: {
+      data: 'NPL 相机光谱灵敏度（Colour Science 0.4.4）',
+      domain: '逐波长、等权最小二乘；目标为 CIE 1931 2°',
+      approximation:
+        '光谱拟合不等于实际相机矩阵（后者按训练色样与光源优化）；Sigma SD Merrill 仅 400–680 nm，在测量范围内拟合',
+      reference: 'Luther 1927；Ives 1915',
+    },
     mount: cameraFigure,
+  },
+  {
+    id: 'mixing',
+    number: 31,
+    title: '加色混合与减色混合',
+    conditions: '高斯光谱 · 单常数 Kubelka–Munk · D65 · CIE 1931 2°',
+    grade: 'illustrative',
+    highlight:
+      '光谱相加时，混合色的色度严格落在两光色度的连线上（重心规则）。颜料混合的是 K/S，反射率非线性变化，混合色偏离连线且 Y 低于两者的线性插值。',
+    provenance: {
+      data: '理想化高斯光源与平滑反射率曲线，不对应真实颜料',
+      domain: '颜料在 D65 下积分；偏离距离在 xy 中计算',
+      approximation: '单常数 Kubelka–Munk，忽略表面反射（Saunderson 修正）',
+      reference: 'Kubelka & Munk 1931；Grassmann 1853',
+    },
+    mount: mixing,
   },
 ];
 export const groups: FigureGroup[] = [{ name: '光谱', figures }];

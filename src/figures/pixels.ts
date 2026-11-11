@@ -1,28 +1,24 @@
-import { el, slider } from '../dom';
+import { el } from '../dom';
 import type { Vec3 } from '../model';
 import { bayerChannel, simulateBayer } from '../science/bayer';
-import {
-  D65_SPD,
-  emissionToXYZ,
-  kubelkaMunkMix,
-  reflectanceToXYZ,
-  WAVELENGTHS,
-  type Spectrum,
-} from '../science/spectral';
 import '../targets';
 import type { FigureContext, FigureDef, FigureGroup } from './page';
 import {
   axes,
+  codeLimits,
+  codeRanges,
+  codeSpan,
   createCanvas,
   css,
-  displayRgb,
   frame,
   INK,
   label,
   polyline,
+  readoutTable,
   segmented,
   SERIES,
   ticks,
+  type CodeRange,
 } from './plot';
 
 type Image = Vec3[][];
@@ -128,6 +124,11 @@ const fromYcc = ([y, cb, cr]: Vec3): Vec3 => {
     b = y + 1.8556 * cb;
   return [r, (y - KR * r - KB * b) / KG, b].map(clip) as Vec3;
 };
+const decode = (v: number) =>
+  v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+/** Relative luminance of an sRGB-encoded pixel. */
+const linearY = ([r, g, b]: Vec3) =>
+  KR * decode(r) + KG * decode(g) + KB * decode(b);
 const schemes = [
   { id: '444', name: '4:4:4', block: [1, 1], rate: 3 },
   { id: '422', name: '4:2:2', block: [2, 1], rate: 2 },
@@ -141,32 +142,37 @@ function subsampling({ host, controls, readout }: FigureContext) {
   let scheme: (typeof schemes)[number] = schemes[2];
   const info = el('div', { class: 'readout-list' });
   readout.append(info);
+  const reconstruct = () => {
+    const [bw, bh] = scheme.block;
+    const chroma = ycc.map((row, y) =>
+      row.map((_, x) => {
+        const x0 = x - (x % bw),
+          y0 = y - (y % bh);
+        let cb = 0,
+          cr = 0,
+          n = 0;
+        for (let j = y0; j < Math.min(y0 + bh, H); j++)
+          for (let i = x0; i < Math.min(x0 + bw, W); i++) {
+            cb += ycc[j][i][1];
+            cr += ycc[j][i][2];
+            n++;
+          }
+        return [cb / n, cr / n] as [number, number];
+      }),
+    );
+    const rebuilt = ycc.map((row, y) =>
+      row.map(([l], x) => fromYcc([l, ...chroma[y][x]])),
+    );
+    return { chroma, rebuilt };
+  };
   const plot = createCanvas(
     host,
     (ctx, width, height) => {
       const [bw, bh] = scheme.block;
-      const chroma = ycc.map((row, y) =>
-        row.map((_, x) => {
-          const x0 = x - (x % bw),
-            y0 = y - (y % bh);
-          let cb = 0,
-            cr = 0,
-            n = 0;
-          for (let j = y0; j < Math.min(y0 + bh, H); j++)
-            for (let i = x0; i < Math.min(x0 + bw, W); i++) {
-              cb += ycc[j][i][1];
-              cr += ycc[j][i][2];
-              n++;
-            }
-          return [cb / n, cr / n] as [number, number];
-        }),
-      );
+      const { chroma, rebuilt } = reconstruct();
       const luma = ycc.map((row) => row.map(([y]) => [y, y, y] as Vec3));
       const chromaOnly = chroma.map((row) =>
         row.map(([cb, cr]) => fromYcc([0.6, cb, cr])),
-      );
-      const rebuilt = ycc.map((row, y) =>
-        row.map(([l], x) => fromYcc([l, ...chroma[y][x]])),
       );
       const L = layout(width, height, W, H, 2, 2);
       const panels: [string, Image, number, number][] = [
@@ -208,17 +214,33 @@ function subsampling({ host, controls, readout }: FigureContext) {
     '色度抽样网格',
   );
   const update = () => {
+    // Non-constant luminance: Y′ is kept, but linear Y of the rebuilt pixels changes.
+    const { rebuilt } = reconstruct();
+    let worst = 0,
+      total = 0,
+      count = 0;
+    source.forEach((row, y) =>
+      row.forEach((rgb, x) => {
+        const error = Math.abs(linearY(rebuilt[y][x]) - linearY(rgb));
+        worst = Math.max(worst, error);
+        total += error;
+        if (error > 0.01) count++;
+      }),
+    );
     info.replaceChildren(
       el('strong', {}, scheme.name),
       el(
         'span',
         {},
-        `每像素 ${scheme.rate} 个样本，数据量为 4:4:4 的 ${Math.round((scheme.rate / 3) * 100)}%`,
+        `${scheme.rate} 样本/像素，数据量为 4:4:4 的 ${Math.round((scheme.rate / 3) * 100)}%`,
       ),
-      el(
-        'span',
-        { class: 'muted' },
-        '看红色圆盘和绿色方块的边缘：亮度依旧锐利，颜色却糊成一格一格。',
+      readoutTable(
+        ['线性亮度 Y 误差', ''],
+        [
+          ['最大', `${(worst * 100).toFixed(1)}%`],
+          ['平均', `${((total / (W * H)) * 100).toFixed(2)}%`],
+          ['> 1% 的像素', `${count} / ${W * H}`],
+        ],
       ),
     );
     plot.redraw();
@@ -242,11 +264,17 @@ function subsampling({ host, controls, readout }: FigureContext) {
 function bitDepth({ host, controls, readout }: FigureContext) {
   let range: [number, number] = [0.2, 0.3];
   let stretch = true;
+  let codeRange: CodeRange = 'full';
   const info = el('div', { class: 'readout-list' });
   readout.append(info);
+  /** Quantize a normalized signal to n-bit codes in the chosen range and back. */
   const quantize = (v: number, bits: number) => {
-    const levels = 2 ** bits - 1;
-    return Math.round(v * levels) / levels;
+    const [black, white] = codeLimits(bits, codeRange);
+    return (Math.round(black + v * (white - black)) - black) / (white - black);
+  };
+  const codes = (v: number, bits: number) => {
+    const [black, white] = codeLimits(bits, codeRange);
+    return Math.round(black + v * (white - black));
   };
   const plot = createCanvas(
     host,
@@ -321,27 +349,37 @@ function bitDepth({ host, controls, readout }: FigureContext) {
     '8-bit 与 10-bit 渐变',
   );
   const update = () => {
-    const steps = (bits: number) =>
-      Math.round((range[1] - range[0]) * (2 ** bits - 1)) + 1;
+    const row = (bits: number) => {
+      const [lo, hi] = [codes(range[0], bits), codes(range[1], bits)];
+      return [
+        `${bits}-bit`,
+        `${lo}–${hi}`,
+        String(hi - lo + 1),
+        `${(100 / codeSpan(bits, codeRange)).toFixed(3)}%`,
+      ];
+    };
     info.replaceChildren(
       el(
         'strong',
         {},
-        `编码值 ${range[0].toFixed(2)} → ${range[1].toFixed(2)}`,
+        `信号 ${range[0].toFixed(2)}–${range[1].toFixed(2)} · ${codeRange === 'full' ? 'Full' : 'Legal'} range`,
       ),
-      el('span', {}, `8-bit：${steps(8)} 级`),
-      el('span', {}, `10-bit：${steps(10)} 级`),
+      readoutTable(['', '码值', '级数', '每级'], [row(8), row(10)]),
       el(
         'span',
         { class: 'muted' },
         stretch
-          ? '已把这段范围放大到全黑—全白，台阶宽度按比例放大，便于在 8-bit 屏幕上看清。'
-          : '未放大时，屏幕本身也是 8-bit 输出，10-bit 渐变会被再次量化，两行看起来几乎一样。',
+          ? '显示前把该区间拉伸到全黑—全白，台阶按比例放大。'
+          : '未拉伸：屏幕输出通常为 8-bit，10-bit 行会被再次量化。',
       ),
     );
     plot.redraw();
   };
   controls.append(
+    segmented('码值范围', codeRanges, codeRange, (v) => {
+      codeRange = v;
+      update();
+    }),
     segmented(
       '范围',
       [
@@ -394,17 +432,11 @@ function bayer({ host, controls, readout }: FigureContext) {
     el(
       'div',
       { class: 'readout-list' },
-      el('strong', {}, 'RGGB 排列'),
-      el('span', {}, '每个感光点只记录一种颜色：一半是绿，红、蓝各四分之一。'),
+      el('strong', {}, 'RGGB · 采样率 G 1/2，R、B 各 1/4'),
       el(
         'span',
         {},
         `去马赛克 PSNR（sRGB 编码域）${simulation.psnr.toFixed(1)} dB`,
-      ),
-      el(
-        'span',
-        { class: 'muted' },
-        '误差集中在边缘和右下角的细条纹：插值把相邻像素的颜色混了进来，出现伪色和拉链状纹理。',
       ),
     ),
   );
@@ -452,228 +484,60 @@ function bayer({ host, controls, readout }: FigureContext) {
   return () => plot.destroy();
 }
 
-// ---------------------------------------------------------------- 37 mixing
-const sigmoid = (v: number) => 1 / (1 + Math.exp(-v));
-const gaussian = (centre: number, width: number): Spectrum =>
-  WAVELENGTHS.map((w) => Math.exp(-(((w - centre) / width) ** 2)));
-const lights = {
-  red: { name: '红光', spd: gaussian(615, 22) },
-  green: { name: '绿光', spd: gaussian(535, 22) },
-  blue: { name: '蓝光', spd: gaussian(455, 18) },
-};
-const pigments = {
-  yellow: {
-    name: '黄颜料',
-    r: WAVELENGTHS.map((w) => 0.04 + 0.86 * sigmoid((w - 505) / 11)),
-  },
-  cyan: {
-    name: '青颜料',
-    r: WAVELENGTHS.map((w) => 0.04 + 0.82 * (1 - sigmoid((w - 580) / 13))),
-  },
-  magenta: {
-    name: '品红颜料',
-    r: WAVELENGTHS.map(
-      (w) =>
-        0.04 + 0.86 * (1 - sigmoid((w - 485) / 10) * sigmoid((585 - w) / 10)),
-    ),
-  },
-};
-const pairs = [
-  { id: 'a', lights: ['red', 'green'], pigments: ['yellow', 'cyan'] },
-  { id: 'b', lights: ['red', 'blue'], pigments: ['yellow', 'magenta'] },
-  { id: 'c', lights: ['green', 'blue'], pigments: ['cyan', 'magenta'] },
-] as const;
-function mixing({ host, controls, readout }: FigureContext) {
-  let pair: (typeof pairs)[number] = pairs[0];
-  let ratio = 0.5;
-  const info = el('div', { class: 'readout-list' });
-  readout.append(info);
-  const compute = () => {
-    const [la, lb] = pair.lights.map((k) => lights[k].spd);
-    // Each light alone at unit power; the mix adds both beams (2 × the ratio weights).
-    const lightMix = la.map((v, i) => 2 * ((1 - ratio) * v + ratio * lb[i]));
-    const lightXyz = [la, lb, lightMix].map((s) => emissionToXYZ(s));
-    const scale =
-      1 / Math.max(...lightXyz.map((xyz) => Math.max(...displayLinear(xyz))));
-    const [pa, pb] = pair.pigments.map((k) => pigments[k].r);
-    const pigmentMix = kubelkaMunkMix([pa, pb], [1 - ratio, ratio]);
-    return {
-      light: {
-        spectra: [la, lb, lightMix],
-        colors: lightXyz.map(
-          (xyz) => displayRgb(xyz.map((v) => v * scale) as Vec3).rgb,
-        ),
-      },
-      pigment: {
-        spectra: [pa, pb, pigmentMix],
-        colors: [pa, pb, pigmentMix].map(
-          (r) => displayRgb(reflectanceToXYZ(r, D65_SPD)).rgb,
-        ),
-      },
-    };
-  };
-  const plot = createCanvas(
-    host,
-    (ctx, width, height) => {
-      const result = compute();
-      const half = (width - 10) / 2;
-      (
-        [
-          [
-            '光：加色混合',
-            result.light,
-            pair.lights.map((k) => lights[k].name),
-            '相对辐射',
-          ],
-          [
-            '颜料：减色混合（Kubelka–Munk）',
-            result.pigment,
-            pair.pigments.map((k) => pigments[k].name),
-            '反射率',
-          ],
-        ] as const
-      ).forEach(([title, data, names, yLabel], k) => {
-        ctx.save();
-        ctx.translate(k * (half + 10), 0);
-        const swatchH = 70;
-        const f = frame(half, height - swatchH - 20, [380, 780], [0, 1.05], {
-          left: 50,
-          right: 12,
-          top: 34,
-          bottom: 40,
-        });
-        label(ctx, title, f.left, 14, INK.bright, 'left', 12);
-        axes(ctx, f, {
-          xTicks: ticks(400, 780, 100),
-          yTicks: ticks(0, 1, 0.5),
-          xLabel: '波长 nm',
-          yLabel,
-          yFormat: (v) => v.toFixed(1),
-        });
-        const peak = k === 0 ? Math.max(...data.spectra.flat()) : 1;
-        data.spectra.forEach((s, i) =>
-          polyline(
-            ctx,
-            f,
-            s.map((v, j) => [WAVELENGTHS[j], v / peak]),
-            i === 2 ? INK.bright : css(data.colors[i]),
-            i === 2 ? 2.6 : 1.6,
-            i === 2 ? [] : [5, 4],
-          ),
-        );
-        const y = height - swatchH - 6;
-        const w = (half - 60) / 3;
-        [names[0], names[1], '混合'].forEach((name, i) => {
-          const x = 50 + i * w;
-          ctx.fillStyle = css(data.colors[i]);
-          ctx.fillRect(x + 4, y, w - 8, swatchH - 24);
-          label(ctx, name, x + w / 2, y + swatchH - 12, INK.text, 'center', 11);
-        });
-        ctx.restore();
-      });
-      plot.canvas.dataset.pair = pair.id;
-    },
-    '光的混合与颜料混合',
-  );
-  const update = () => {
-    const names = pair.lights.map((k) => lights[k].name).join(' + ');
-    const pigmentNames = pair.pigments.map((k) => pigments[k].name).join(' + ');
-    info.replaceChildren(
-      el(
-        'strong',
-        {},
-        `比例 ${Math.round((1 - ratio) * 100)} : ${Math.round(ratio * 100)}`,
-      ),
-      el('span', {}, `光：${names}，光谱相加，越混越亮。`),
-      el(
-        'span',
-        {},
-        `颜料：${pigmentNames}，各自吸收一部分光谱，只剩两者都反射的波段，越混越暗。`,
-      ),
-    );
-    plot.redraw();
-  };
-  const r = slider(
-    'mix-ratio',
-    '混合比例',
-    ratio,
-    0,
-    1,
-    0.01,
-    (v) => {
-      ratio = v;
-      update();
-    },
-    (v) => `${Math.round(v * 100)}%`,
-  );
-  controls.append(
-    segmented(
-      '组合',
-      [
-        { id: 'a', name: '红+绿 / 黄+青' },
-        { id: 'b', name: '红+蓝 / 黄+品红' },
-        { id: 'c', name: '绿+蓝 / 青+品红' },
-      ] as const,
-      'a',
-      (v) => {
-        pair = pairs.find((p) => p.id === v)!;
-        update();
-      },
-    ),
-    r.element,
-  );
-  update();
-  return () => plot.destroy();
-}
-function displayLinear(xyz: Vec3): number[] {
-  const m = [
-    [3.2409699419045226, -1.537383177570094, -0.4986107602930034],
-    [-0.9692436362808796, 1.8759675015077202, 0.04155505740717559],
-    [0.05563007969699366, -0.20397695888897652, 1.0569715142428786],
-  ];
-  return m.map((row) => row[0] * xyz[0] + row[1] * xyz[1] + row[2] * xyz[2]);
-}
-
 const figures: FigureDef[] = [
   {
     id: 'subsampling',
-    number: 34,
+    number: 35,
     title: '色度抽样',
-    caption: '4:4:4、4:2:2、4:2:0',
+    conditions: 'BT.709 Y′CbCr（非恒定亮度）· 块平均 · 最近邻重建',
+    grade: 'illustrative',
     highlight:
-      '视频把亮度 Y′ 和色度 Cb/Cr 分开存。人眼对颜色细节不敏感，所以 4:2:2 让每两个像素共用一份色度，4:2:0 让每 2×2 个像素共用一份：数据量降到一半，而边缘的亮度轮廓几乎不变，只有颜色变成了块。',
-    note: 'BT.709 系数作用于 sRGB 编码值；色度取块内平均，重建时按最近邻放大。真实编码器会使用更好的滤波，块感比这里轻。测试图为程序生成。',
+      'Y′ 一个像素都没改，重建后的线性亮度 Y 却变了：Y′ 由非线性 R′G′B′ 算出，部分亮度信息留在 Cb/Cr 中，色度被平均后这部分随之丢失。误差集中在饱和色的边缘，这就是非恒定亮度编码的固有缺陷，BT.2020 的 YcCbcCrc 正为此而设。',
+    provenance: {
+      data: '程序生成的测试图',
+      domain:
+        'BT.709 系数作用于 sRGB 编码值；亮度误差在解码后的线性 sRGB 中计算',
+      approximation:
+        '下采样为块平均，上采样为最近邻；实际编码器的滤波器使块感更轻，但亮度误差机制相同',
+      reference:
+        'ITU-R BT.709、BT.2020；Poynton, Digital Video and HD, 2nd ed.',
+    },
     mount: subsampling,
   },
   {
     id: 'bit-depth',
-    number: 35,
+    number: 36,
     title: '位深与色带',
-    caption: '8-bit 与 10-bit 渐变',
+    conditions: '均匀量化 · 8 / 10-bit · Full / Legal range',
+    grade: 'illustrative',
     highlight:
-      '同一段暗部渐变，8-bit 只有约 26 级，10-bit 有约 103 级。放大对比后，8-bit 的台阶宽度是 10-bit 的 4 倍——这就是天空、暗场里出现色带的原因。',
-    note: '大多数屏幕本身只输出 8-bit，因此这里先量化、再把局部范围拉伸到全黑—全白来模拟差别；「原样显示」时两行几乎相同属于正常现象。',
+      '同一段信号，10-bit 的级数是 8-bit 的 4 倍；Legal range 只用 219/255 的码字，同一区间的级数少约 14%，台阶相应变宽。拉伸显示时台阶宽度与每级的信号步长成正比。',
+    provenance: {
+      domain:
+        '对归一化信号直接量化；Legal range 取 BT.709 / BT.2100 窄范围 16–235（8-bit）、64–940（10-bit）',
+      approximation:
+        '屏幕通常只输出 8-bit，因此先量化再拉伸局部范围模拟差别；未加抖动',
+      reference: 'ITU-R BT.709、BT.2100',
+    },
     mount: bitDepth,
   },
   {
     id: 'bayer',
-    number: 36,
-    title: '拜耳阵列与去马赛克',
-    caption: '每个感光点只记录一种颜色',
+    number: 37,
+    title: 'Bayer 阵列与去马赛克',
+    conditions: 'RGGB · 线性光采样 · 双线性插值 · PSNR 在 sRGB 编码域',
+    grade: 'illustrative',
     highlight:
-      '传感器上每个像素只透过一种颜色的滤镜（RGGB）。切到「拜耳马赛克」看原始数据，再切到「去马赛克」：缺失的两个通道由邻居插值补回。平坦区域几乎完美，锐利边缘和细条纹处会出现伪色。',
-    note: '程序生成的 sRGB 测试图先解码为线性光，再进行 RGGB 采样与双线性去马赛克，显示时编码回 sRGB。误差 ×4 与 PSNR 均在 sRGB 编码域计算。真实相机与 RAW 软件还会使用更复杂的自适应算法。',
+      '双线性插值在平坦区近乎无损，误差集中在高对比边缘和接近 Nyquist 的细条纹：R、B 的采样率只有 G 的一半，插值后三通道的边缘位置不一致，形成伪色与拉链纹。',
+    provenance: {
+      data: '程序生成的 sRGB 测试图',
+      domain:
+        '先解码为线性光，再做 RGGB 采样与插值，显示时编码回 sRGB；误差 ×4 与 PSNR 在 sRGB 编码域计算',
+      approximation:
+        '真实相机与 RAW 软件使用梯度或频域自适应算法，并含抗混叠滤镜',
+      reference: 'Bayer, US Patent 3,971,065, 1976',
+    },
     mount: bayer,
   },
-  {
-    id: 'mixing',
-    number: 37,
-    title: '光的混合与颜料混合',
-    caption: '加色与减色',
-    highlight:
-      '左边是两束光叠加：光谱相加，红光加绿光得到黄色，越混越亮。右边是两种颜料调和：每种颜料吸收掉一部分波长，混合后只剩两者都反射的部分，黄加青得到绿色，而且越混越暗。',
-    note: '示意：光源为理想化的高斯光谱，颜料为理想化的平滑反射率曲线，按单常数 Kubelka–Munk 模型混合，不对应真实颜料。',
-    mount: mixing,
-  },
 ];
-export const groups: FigureGroup[] = [{ name: '像素', figures }];
+export const groups: FigureGroup[] = [{ name: '采样与量化', figures }];

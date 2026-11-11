@@ -11,6 +11,9 @@ import {
 import type { FigureContext, FigureDef, FigureGroup } from './page';
 import {
   axes,
+  codeRanges,
+  codeSpan,
+  codeValue,
   createCanvas,
   css,
   frame,
@@ -18,8 +21,13 @@ import {
   label,
   playback,
   polyline,
+  probe,
+  rangeLabel,
+  readoutTable,
+  segmented,
   SERIES,
   ticks,
+  type CodeRange,
   type Frame,
 } from './plot';
 
@@ -47,6 +55,16 @@ function marker(
   ctx.restore();
   label(ctx, text, f.sx(x) + 4, f.top + 12, INK.text, 'left', 10);
 }
+interface Summary {
+  title: string;
+  head: string[];
+  row: (curve: Curve, code: (signal: number) => number) => string[];
+}
+const BITS = 10;
+/** Signal change per stop, central difference. */
+const slopeAt = (value: (stops: number) => number, stops: number) =>
+  (value(stops + 0.01) - value(stops - 0.01)) / 0.02;
+
 function curveFigure(options: {
   curves: Curve[];
   x: [number, number];
@@ -57,13 +75,26 @@ function curveFigure(options: {
   markers: [number, string][];
   strips?: boolean;
   initial: number;
+  summary: Summary;
+  /** Extra per-curve readout at the cursor, e.g. absolute luminance. */
+  extra?: (curve: Curve, stops: number) => string | null;
 }) {
   return ({ host, controls, readout }: FigureContext) => {
     const visible = new Set(options.curves.map((c) => c.id));
     let exposure = options.initial;
+    let range: CodeRange = 'full';
+    let view: 'signal' | 'slope' = 'signal';
+    let lastFrame: Frame | null = null;
     const table = el('div', { class: 'curve-table' });
-    readout.append(table);
+    const summary = el('div', { class: 'readout-list' });
+    readout.append(table, summary);
     const sample = (c: Curve, stops: number) => c.value(options.linear(stops));
+    const slope = (c: Curve, stops: number) =>
+      slopeAt((x) => sample(c, x), stops);
+    const xs = Array.from(
+      { length: 400 },
+      (_, i) => options.x[0] + ((options.x[1] - options.x[0]) * i) / 399,
+    );
     const plot = createCanvas(
       host,
       (ctx, width, height) => {
@@ -72,38 +103,46 @@ function curveFigure(options: {
         const stripBlock = options.strips
           ? shown.length * (stripHeight + 4) + 10
           : 0;
-        const f = frame(width, height - stripBlock, options.x, [0, 1.05], {
+        const y = (c: Curve, x: number) =>
+          view === 'signal' ? sample(c, x) : slope(c, x);
+        const top =
+          view === 'signal'
+            ? 1.05
+            : Math.max(
+                0.1,
+                ...shown.flatMap((c) =>
+                  xs.map((x) => Math.min(slope(c, x), 1)),
+                ),
+              ) * 1.1;
+        const f = frame(width, height - stripBlock, options.x, [0, top], {
           left: 56,
           right: 20,
           top: 24,
           bottom: 46,
         });
+        lastFrame = f;
+        const yStep = view === 'signal' ? 0.1 : top > 0.5 ? 0.1 : 0.05;
         axes(ctx, f, {
           xTicks: ticks(options.x[0], options.x[1], 1),
-          yTicks: ticks(0, 1, 0.1),
+          yTicks: ticks(0, top, yStep),
           xLabel: options.xLabel,
-          yLabel: options.yLabel,
+          yLabel: view === 'signal' ? options.yLabel : '斜率（信号 / 档）',
           xFormat: (v) => (v > 0 ? `+${v}` : String(v)),
-          yFormat: (v) => v.toFixed(1),
+          yFormat: (v) => v.toFixed(view === 'signal' ? 1 : 2),
         });
         for (const [x, text] of options.markers) marker(ctx, f, x, text);
-        const xs = Array.from(
-          { length: 400 },
-          (_, i) => options.x[0] + ((options.x[1] - options.x[0]) * i) / 399,
-        );
         for (const c of shown) {
           polyline(
             ctx,
             f,
-            xs.map((x) => [x, sample(c, x)]),
+            xs.map((x) => [x, y(c, x)]),
             c.color,
             2,
             c.dash ?? [],
           );
-          const y = sample(c, exposure);
           ctx.fillStyle = c.color;
           ctx.beginPath();
-          ctx.arc(f.sx(exposure), f.sy(y), 3.5, 0, Math.PI * 2);
+          ctx.arc(f.sx(exposure), f.sy(y(c, exposure)), 3.5, 0, Math.PI * 2);
           ctx.fill();
         }
         ctx.strokeStyle = INK.bright;
@@ -134,27 +173,47 @@ function curveFigure(options: {
           }
         }
         plot.canvas.dataset.curves = String(shown.length);
+        plot.canvas.dataset.view = view;
       },
-      options.yLabel,
+      `${options.yLabel}；指针或方向键移动曝光游标`,
     );
+    const code = (signal: number) => codeValue(signal, BITS, range);
     const update = () => {
+      const span = codeSpan(BITS, range);
       table.replaceChildren(
         el(
           'strong',
           {},
-          `${exposure >= 0 ? '+' : ''}${exposure.toFixed(2)} 档`,
+          `${exposure >= 0 ? '+' : ''}${exposure.toFixed(2)} 档 · 线性 ${options.linear(exposure).toPrecision(4)}`,
         ),
+        el('span', { class: 'curve-head' }, `码值 ${rangeLabel(BITS, range)}`),
         ...options.curves
           .filter((c) => visible.has(c.id))
-          .map((c) =>
-            el(
+          .map((c) => {
+            const v = sample(c, exposure);
+            const extra = options.extra?.(c, exposure);
+            return el(
               'span',
               {},
               el('i', { style: `background:${c.color}` }),
               c.name,
-              el('code', {}, sample(c, exposure).toFixed(3)),
-            ),
-          ),
+              el('code', {}, v.toFixed(4)),
+              el(
+                'small',
+                {},
+                `码值 ${code(v)} · ${(slope(c, exposure) * span).toFixed(1)} 码值/档${extra ? ` · ${extra}` : ''}`,
+              ),
+            );
+          }),
+      );
+      summary.replaceChildren(
+        el('strong', {}, options.summary.title),
+        readoutTable(
+          ['', ...options.summary.head],
+          options.curves
+            .filter((c) => visible.has(c.id))
+            .map((c) => [c.name, ...options.summary.row(c, code)]),
+        ),
       );
       plot.redraw();
     };
@@ -174,8 +233,33 @@ function curveFigure(options: {
         update();
       },
     });
+    const stopProbe = probe(plot.canvas, (p) => {
+      if (!p || !lastFrame) return;
+      play.pause();
+      const stops = Math.min(
+        Math.max(lastFrame.ix(p.x), options.x[0]),
+        options.x[1],
+      );
+      play.set(Math.round(stops * 20) / 20);
+    });
     controls.append(
       play.element,
+      segmented(
+        '纵轴',
+        [
+          { id: 'signal', name: '信号' },
+          { id: 'slope', name: '斜率' },
+        ] as const,
+        view,
+        (v) => {
+          view = v;
+          plot.redraw();
+        },
+      ),
+      segmented('码值范围', codeRanges, range, (v) => {
+        range = v;
+        update();
+      }),
       el(
         'div',
         { class: 'curve-toggles' },
@@ -194,13 +278,47 @@ function curveFigure(options: {
     );
     update();
     return () => {
+      stopProbe();
       play.destroy();
       plot.destroy();
     };
   };
 }
 
-const transferCurves: Curve[] = [
+/** Stops above the 0-stop reference where a curve first reaches `level` (full signal by default). */
+function headroom(
+  value: (stops: number) => number,
+  level = 1 - 1e-6,
+  limit = 40,
+) {
+  if (value(0) >= level) return 0;
+  if (value(limit) < level) return Infinity;
+  let lo = 0,
+    hi = limit;
+  for (let i = 0; i < 50; i++) {
+    const mid = (lo + hi) / 2;
+    if (value(mid) >= level) hi = mid;
+    else lo = mid;
+  }
+  return hi;
+}
+/** Stop of the steepest point in a range (maximum local contrast). */
+function steepest(value: (stops: number) => number, from: number, to: number) {
+  let best = from,
+    slope = -Infinity;
+  for (let x = from; x <= to; x += 0.01) {
+    const s = slopeAt(value, x);
+    if (s > slope) {
+      slope = s;
+      best = x;
+    }
+  }
+  return { stops: best, slope };
+}
+const stopsText = (v: number) =>
+  Number.isFinite(v) ? `${v >= 0 ? '+' : ''}${v.toFixed(2)}` : '> 40';
+
+export const transferCurves: Curve[] = [
   {
     id: 'srgb',
     name: 'sRGB',
@@ -248,7 +366,7 @@ const transferCurves: Curve[] = [
 ];
 const encode = (v: number) =>
   encodeTransfer(Math.min(Math.max(v, 0), 1), 'srgb');
-const toneCurves: Curve[] = [
+export const toneCurves: Curve[] = [
   {
     id: 'clip',
     name: '直接裁剪',
@@ -427,12 +545,21 @@ function hdCurve({ host, controls, readout }: FigureContext) {
 const figures: FigureDef[] = [
   {
     id: 'transfer',
-    number: 31,
+    number: 32,
     title: '传递函数',
-    caption: '同一横轴：以漫反射白为 0 档',
+    conditions:
+      '横轴 log₂(L / 漫反射白) · PQ 白 = 203 cd/m² · HLG 白 = 75% · Log 以 0.18 为中灰',
+    grade: 'reference',
     highlight:
-      '横轴统一成「相对漫反射白的曝光档位」，于是能直接比较：sRGB、Rec.709、Gamma 2.4 在 0 档就到顶；HLG 把漫反射白放在 75%，还能再高约 2 档；PQ 把 203 cd/m² 白放在 58% 左右，上面留到 10000 cd/m²；三条摄影机 Log 曲线把白放在中段，上下各留出大量档位。',
-    note: 'PQ 按 BT.2408 把漫反射白设为 203 cd/m²；HLG 把参考白放在 75% 信号；LogC4、S-Log3、DaVinci Intermediate 以 0.18 为中灰的场景线性值输入。显示类曲线在白以上直接裁剪为 1。',
+      '同一横轴下比较漫反射白的码值和白以上的余量。Log 曲线在中灰以上近似直线，斜率视图中的平台高度就是每档分到的码值数；PQ 在高亮度段也趋于这种对数行为，暗部每档码值逐渐减少，这是按 Barten 对比敏感度分配码字的结果。',
+    provenance: {
+      data: '各标准公式；LogC4、S-Log3、DaVinci Intermediate 已对照 Colour Science 0.4.4 验证',
+      domain:
+        '显示类曲线输入 0–1 相对亮度，白以上裁剪；PQ 输入 203·2^档 cd/m²；HLG 输入相对场景亮度，参考白在 75% 信号',
+      approximation: 'HLG 只画 OETF，未含系统 gamma 与 OOTF',
+      reference:
+        'IEC 61966-2-1；ITU-R BT.709、BT.1886、BT.2100、BT.2408；ARRI LogC4 规范；Sony S-Log3 技术摘要；Blackmagic DaVinci Wide Gamut 白皮书',
+    },
     mount: curveFigure({
       curves: transferCurves,
       x: [-10, 7],
@@ -444,16 +571,38 @@ const figures: FigureDef[] = [
         [Math.log2(0.18), '18% 灰'],
       ],
       initial: 0,
+      summary: {
+        title: '码值与余量',
+        head: ['白', '中灰', '白以上 档'],
+        row: (c, code) => [
+          String(code(c.value(1))),
+          String(code(c.value(0.18))),
+          stopsText(headroom((x) => c.value(2 ** x))),
+        ],
+      },
+      extra: (c, stops) =>
+        c.id === 'pq'
+          ? `${Math.min(203 * 2 ** stops, 10000).toPrecision(4)} cd/m²`
+          : null,
     }),
   },
   {
     id: 'tonemap',
-    number: 32,
+    number: 33,
     title: '色调映射曲线',
-    caption: 'Reinhard、Hable、ACES 拟合、AgX',
+    conditions:
+      '横轴 log₂(L / 0.18) · Reinhard、Hable、ACES 拟合、AgX · 输出 sRGB 编码',
+    grade: 'approximate',
     highlight:
-      '同样的场景亮度，四种曲线给出不同的显示值：直接裁剪在中灰 +2.5 档就丢掉了所有高光；Reinhard 永远到不了白；Hable、ACES 拟合、AgX 都有趾部和肩部，但肩部开始的位置和中灰的落点不同。下方灰阶条可以直接看出差别。',
-    note: '横轴以 0.18 中灰为 0 档。ACES 为 Stephen Hill 的拟合（不是 ACES 2.0），AgX 为多项式近似，Hable 使用公开的默认参数（白点 11.2，曝光偏移 ×2）。纵轴均为 sRGB 编码后的显示值。',
+      '中灰落点决定整体亮度，斜率峰的位置决定对比集中在哪一段。AgX 的斜率峰几乎正好在中灰，ACES 拟合与 Hable 依次向高光移动约 1 档；Reinhard 的肩部最长，接近白要再上去近 8 档。直接裁剪的斜率在裁剪点前持续上升，之后归零。',
+    provenance: {
+      data: '各算子公开公式',
+      domain: '单通道中性输入（R = G = B），输出为线性显示值后统一做 sRGB 编码',
+      approximation:
+        'ACES 为 Stephen Hill 对 ACES 1.x RRT + sRGB ODT 的拟合，不是 ACES 2.0；AgX 为 Wrensch 的 6 次多项式近似；Hable 用默认参数（白点 11.2，曝光偏移 ×2）',
+      reference:
+        'Reinhard et al., SIGGRAPH 2002；Hable, GDC 2010；Hill, BakingLab；Sobotka, AgX',
+    },
     mount: curveFigure({
       curves: toneCurves,
       x: [-8, 8],
@@ -463,16 +612,34 @@ const figures: FigureDef[] = [
       markers: [[0, '中灰 0.18']],
       strips: true,
       initial: 0,
+      summary: {
+        title: '中灰码值与对比位置',
+        head: ['中灰', '斜率峰 档', '0.99 处 档'],
+        row: (c, code) => {
+          const value = (x: number) => c.value(0.18 * 2 ** x);
+          return [
+            String(code(value(0))),
+            stopsText(steepest(value, -8, 8).stops),
+            stopsText(headroom(value, 0.99)),
+          ];
+        },
+      },
     }),
   },
   {
     id: 'hd',
-    number: 33,
+    number: 34,
     title: '胶片特性曲线（H&D）',
-    caption: '趾部、直线部、肩部',
+    conditions: '密度 D 对 log₁₀ H · 逻辑斯谛示意 · 片基灰雾 0.15',
+    grade: 'illustrative',
     highlight:
-      '负片密度随 log 曝光量变化：趾部压缩暗部，直线部的斜率 γ 决定反差，肩部缓慢地压住高光。拖动 γ：斜率越大，直线部覆盖的档位越少，宽容度越窄。',
-    note: '这是逻辑斯谛函数构成的示意曲线，不对应任何具体胶片型号。染料密度（分色）曲线没有可靠数据，因此不做。',
+      '直线部斜率即 γ；宽容度 = 直线部跨度 / log₁₀2。γ 增大时直线部在 log H 上收窄，同一密度范围对应更少的档位。趾部与肩部的边界取曲率极值点。',
+    provenance: {
+      domain: '密度对 log₁₀ 相对曝光量',
+      approximation:
+        '逻辑斯谛函数构造，不对应任何具体胶片；趾、肩边界取 k·(x − m) = ±1.317；无分色染料密度曲线',
+      reference: 'Hurter & Driffield 1890',
+    },
     mount: hdCurve,
   },
 ];

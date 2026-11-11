@@ -1782,6 +1782,13 @@ textarea {
   color: #bfc1cb;
   white-space: nowrap;
 }
+.view-tab-count {
+  margin-left: 6px;
+  font: 10px var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  opacity: 0.75;
+}
 .view-tab:hover {
   color: var(--text);
 }
@@ -2022,7 +2029,9 @@ textarea {
 }
 @media (min-width: 1201px) {
   .figure-page .figure-workspace {
+    flex: none;
     height: max(640px, calc(100dvh - 78px));
+    grid-template-rows: minmax(0, 1fr);
   }
   .figure-page .target-sidebar,
   .figure-page .figure-stage,
@@ -2059,10 +2068,48 @@ textarea {
   margin: 0;
   font: 500 18px var(--font-display);
 }
-.figure-caption {
-  margin: 4px 0 0;
-  font-size: 11px;
+.figure-title-row {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0 8px;
+}
+.figure-title-grade .figure-grade {
+  margin-left: 0;
+}
+.figure-conditions {
+  margin: 5px 0 0;
+  font: 10.5px/1.6 var(--font-mono);
   color: var(--muted);
+}
+.figure-grade {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font: 400 10px/1.5 var(--font-body);
+  color: var(--muted);
+  vertical-align: 2px;
+  white-space: nowrap;
+}
+.figure-button .figure-grade {
+  margin-left: 6px;
+  padding: 0 4px;
+  font-size: 9px;
+  vertical-align: 1px;
+}
+.figure-grade[data-grade='reference'] {
+  color: var(--success);
+  border-color: #9ac9b040;
+}
+.figure-grade[data-grade='approximate'] {
+  color: #f0b35e;
+  border-color: #f0b35e50;
+}
+.figure-page .figure-button > span {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
 }
 .figure-host {
   position: relative;
@@ -2071,10 +2118,11 @@ textarea {
   display: flex;
 }
 .figure-host canvas {
-  flex: 1;
+  /* Absolute so the canvas's own pixel size never feeds back into the layout. */
+  position: absolute;
+  inset: 0;
   width: 100%;
-  min-width: 0;
-  height: auto;
+  height: 100%;
   display: block;
 }
 .figure-host canvas:focus-visible {
@@ -2153,16 +2201,59 @@ textarea {
 .figure-inspector .figure-highlight {
   margin-top: 14px;
 }
-.figure-note {
-  margin-top: 18px;
+.figure-provenance {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 8px 12px;
+  margin: 18px 0 0;
   padding-top: 14px;
   border-top: 1px solid var(--border);
+  font-size: 10.5px;
+  line-height: 1.75;
+}
+.figure-provenance:empty {
+  display: none;
+}
+.figure-provenance dt {
+  color: var(--muted);
+  white-space: nowrap;
+}
+.figure-provenance dd {
+  margin: 0;
+  color: #c9cbd4;
+}
+.figure-readout > * + * {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid #ffffff0b;
+}
+.figure-readout > .figure-stage-label + * {
+  border-top: 0;
+  padding-top: 0;
+}
+.readout-grid {
+  display: grid;
+  gap: 4px 12px;
+  font: 10.5px var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+.readout-grid > span {
+  text-align: right;
+  white-space: nowrap;
+}
+.readout-grid > .key {
+  text-align: left;
+  white-space: normal;
+  min-width: 0;
+}
+.readout-grid .head {
+  font-family: var(--font-body);
   font-size: 10px;
-  line-height: 1.85;
   color: var(--muted);
 }
-.figure-note[hidden] {
-  display: none;
+.figure-host canvas[data-probe] {
+  cursor: crosshair;
+  touch-action: none;
 }
 .readout-list {
   display: grid;
@@ -2234,7 +2325,19 @@ textarea {
   display: grid;
   grid-template-columns: 12px 1fr auto;
   align-items: center;
-  gap: 8px;
+  gap: 2px 8px;
+}
+.curve-table span small {
+  grid-column: 2 / -1;
+  font: 10px var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+.curve-table .curve-head {
+  display: block;
+  font: 10px/1.6 var(--font-mono);
+  color: var(--muted);
+  margin-bottom: 4px;
 }
 .curve-table i {
   width: 12px;

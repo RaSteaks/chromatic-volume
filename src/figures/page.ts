@@ -9,15 +9,50 @@ export interface FigureContext {
   /** Live values beside the figure (numbers, swatches). */
   readout: HTMLElement;
 }
+/**
+ * How far a figure can be trusted as a reference:
+ * - reference: a published standard, model or measured dataset, implemented as written;
+ * - approximate: a fit or simplification of such a standard;
+ * - illustrative: constructed data or a deliberately simple algorithm.
+ */
+export type FigureGrade = 'reference' | 'approximate' | 'illustrative';
+export const gradeNames: Record<FigureGrade, string> = {
+  reference: '参考',
+  approximate: '近似',
+  illustrative: '示意',
+};
+const gradeTitles: Record<FigureGrade, string> = {
+  reference: '按公开标准、文献模型或实测数据实现',
+  approximate: '对标准的拟合或简化，数值与完整实现有差别',
+  illustrative: '构造数据或简化算法，只说明机制',
+};
+export interface Provenance {
+  /** Datasets and their origin. */
+  data?: string;
+  /** Observer, illuminant, adaptation, encoding domain. */
+  domain?: string;
+  /** What is fitted, simplified or left out. */
+  approximation?: string;
+  /** Standards and papers. */
+  reference?: string;
+}
+const provenanceLabels: [keyof Provenance, string][] = [
+  ['data', '数据源'],
+  ['domain', '计算域'],
+  ['approximation', '近似'],
+  ['reference', '文献'],
+];
 export interface FigureDef {
   id: string;
   /** Running number in the figure catalogue (1–37). */
   number: number;
   title: string;
-  caption: string;
+  /** One specification line: observer, illuminant, domain, sampling. */
+  conditions: string;
+  grade: FigureGrade;
+  /** The non-obvious result; live numbers belong in the readout. */
   highlight: string;
-  /** Honest scope note: approximations, data sources, what is not shown. */
-  note?: string;
+  provenance: Provenance;
   mount(context: FigureContext): () => void;
 }
 export type FigureGroup = { name: string; figures: FigureDef[] };
@@ -59,12 +94,19 @@ export function mountFigures(view: FigureViewId, groups: FigureGroup[]) {
     select(figures.find((f) => f.id === mobile.value)!),
   );
   const title = el('h1', {});
-  const caption = el('p', { class: 'figure-caption' });
+  const titleGrade = el('span', { class: 'figure-title-grade' });
+  const conditions = el('p', { class: 'figure-conditions' });
   const host = el('div', { class: 'figure-host' });
   const controls = el('div', { class: 'figure-controls' });
   const readout = el('div', { class: 'figure-readout' });
   const highlight = el('p', { class: 'figure-highlight' });
-  const note = el('p', { class: 'figure-note' });
+  const provenance = el('dl', { class: 'figure-provenance' });
+  const gradeTag = (grade: FigureGrade) =>
+    el(
+      'span',
+      { class: 'figure-grade', 'data-grade': grade, title: gradeTitles[grade] },
+      gradeNames[grade],
+    );
 
   function renderList() {
     list.replaceChildren(
@@ -82,8 +124,13 @@ export function mountFigures(view: FigureViewId, groups: FigureGroup[]) {
                 'data-figure': figure.id,
                 'aria-pressed': String(figure === current),
               },
-              el('strong', {}, `${figure.number}. ${figure.title}`),
-              el('span', {}, figure.caption),
+              el(
+                'strong',
+                {},
+                `${figure.number}. ${figure.title}`,
+                figure.grade === 'reference' ? null : gradeTag(figure.grade),
+              ),
+              el('span', {}, figure.conditions),
             );
             item.addEventListener('click', () => select(figure));
             return item;
@@ -106,10 +153,16 @@ export function mountFigures(view: FigureViewId, groups: FigureGroup[]) {
     controls.replaceChildren();
     readout.replaceChildren();
     title.textContent = `${current.number}. ${current.title}`;
-    caption.textContent = current.caption;
+    titleGrade.replaceChildren(gradeTag(current.grade));
+    conditions.textContent = current.conditions;
     highlight.textContent = current.highlight;
-    note.textContent = current.note ?? '';
-    note.hidden = !current.note;
+    provenance.replaceChildren(
+      ...provenanceLabels.flatMap(([key, name]) =>
+        current.provenance[key]
+          ? [el('dt', {}, name), el('dd', {}, current.provenance[key]!)]
+          : [],
+      ),
+    );
     mobile.value = current.id;
     host.dataset.figure = current.id;
     document.title = `${current.title} · ${views.find((v) => v.id === view)!.name} · Chromatic Volume`;
@@ -148,7 +201,12 @@ export function mountFigures(view: FigureViewId, groups: FigureGroup[]) {
             el(
               'div',
               { class: 'figure-heading' },
-              el('div', {}, title, caption),
+              el(
+                'div',
+                {},
+                el('div', { class: 'figure-title-row' }, title, titleGrade),
+                conditions,
+              ),
               mobile,
             ),
             host,
@@ -163,7 +221,7 @@ export function mountFigures(view: FigureViewId, groups: FigureGroup[]) {
               el('div', { class: 'stage-category' }, icon('info'), '看点'),
               highlight,
               readout,
-              note,
+              provenance,
             ),
           ),
         ),

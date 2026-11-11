@@ -113,29 +113,33 @@ XYZ 误差主要来自不同文献中 ProPhoto 基色和摄影机矩阵的舍入
 
 `npm run generate:figure-data`（需要与上文相同的 `REFERENCE_PYTHON` 环境）运行 `scripts/generate-figure-data.py`，从 Colour Science 0.4.4 导出：
 
-- `src/data/spectral.json`：CIE 1931 2° 配色函数、Wright & Guild 1931 RGB 配色函数、D65 与 A 光源、NPL 测量的 Nikon 5100 / Sigma SD Merrill 相机光谱灵敏度（均为 380–780 nm、5 nm；Sigma 只有 400–680 nm）。
+- `src/data/spectral.json`：CIE 1931 2° 与 CIE 1964 10° 配色函数、Wright & Guild 1931 RGB 配色函数、D65 与 A 光源、NPL 测量的 Nikon 5100 / Sigma SD Merrill 相机光谱灵敏度（均为 380–780 nm、5 nm；Sigma 只有 400–680 nm）。
 - `src/data/gamuts.json`：Pointer（1980）色域（SC 光源下的 LCh，以及经 Bradford 适配到 D65 的 XYZ）与 MacAdam（1942）椭圆（计算值列）。
 - `src/data/tm30.json`：用 99 条 CES 光谱算出的 TM-30-18 色相区间平均值、Rf、Rg、CCT、Duv。网页只绘图，不在浏览器里重算 CAM02-UCS。
 - `tests/reference/figures.json`：供 `tests/figures-science.test.ts` 比对的独立参考值。
 
 已核对（`tests/figures-science.test.ts`）：
 
-| 项目                                                     | 参考                                           |    容差 |
-| -------------------------------------------------------- | ---------------------------------------------- | ------: |
-| ZCAM J、C、h（白 203 cd/m²，L_A = Y_b = 40.6，普通环境） | `XYZ_to_ZCAM`                                  |  1×10⁻⁶ |
-| ZCAM 逆变换往返                                          | —                                              |  1×10⁻⁷ |
-| IPT、HPE LMS                                             | `XYZ_to_IPT`                                   | 1×10⁻¹² |
-| Color.js Jzazbz（白 203 cd/m²）                          | `XYZ_to_Jzazbz`                                |  1×10⁻⁶ |
-| DaVinci Wide Gamut 矩阵、DaVinci Intermediate            | `RGB_COLOURSPACES`、`oetf_DaVinciIntermediate` | 1×10⁻¹⁰ |
-| PQ、HLG、LogC4、S-Log3                                   | `eotf_inverse_ST2084` 等                       |  1×10⁻⁹ |
-| 普朗克轨迹（c₂ = 1.4388×10⁻²）、日光轨迹                 | `sd_blackbody`、`CCT_to_xy_CIE_D`              |  1×10⁻⁹ |
-| 最优色（等能白下的矩形反射率）                           | `sd_to_XYZ`                                    |  1×10⁻⁹ |
-| Machado 2009 矩阵                                        | `CVD_MATRICES_MACHADO2010`                     | 1×10⁻¹² |
+| 项目                                                     | 参考                                           |                        容差 |
+| -------------------------------------------------------- | ---------------------------------------------- | --------------------------: |
+| ZCAM J、C、h（白 203 cd/m²，L_A = Y_b = 40.6，普通环境） | `XYZ_to_ZCAM`                                  |                      1×10⁻⁶ |
+| ZCAM 逆变换往返                                          | —                                              |                      1×10⁻⁷ |
+| IPT、HPE LMS                                             | `XYZ_to_IPT`                                   |                     1×10⁻¹² |
+| Color.js Jzazbz（白 203 cd/m²）                          | `XYZ_to_Jzazbz`                                |                      1×10⁻⁶ |
+| DaVinci Wide Gamut 矩阵、DaVinci Intermediate            | `RGB_COLOURSPACES`、`oetf_DaVinciIntermediate` |                     1×10⁻¹⁰ |
+| PQ、HLG、LogC4、S-Log3                                   | `eotf_inverse_ST2084` 等                       |                      1×10⁻⁹ |
+| 普朗克轨迹（c₂ = 1.4388×10⁻²）、日光轨迹                 | `sd_blackbody`、`CCT_to_xy_CIE_D`              |                      1×10⁻⁹ |
+| 最优色（等能白下的矩形反射率）                           | `sd_to_XYZ`                                    |                      1×10⁻⁹ |
+| Machado 2009 矩阵                                        | `CVD_MATRICES_MACHADO2010`                     |                     1×10⁻¹² |
+| CCT、Duv（7 个色度点，Duv 绝对值至 0.01）                | `uv_to_CCT_Ohno2013`                           | CCT 相对 2×10⁻³，Duv 2×10⁻⁴ |
+| 10-bit / 8-bit Full 与 Legal range 码值                  | ITU-R BT.709、BT.2100 定义                     |                        精确 |
 
 没有独立参考实现、因而只做性质检查的部分：Stephen Hill 的 ACES 拟合与 AgX 多项式近似（单调、0–1 有界）、ACES RGC（阈值内不变、极限映射到边界）、同色异谱样本（D65 下 XYZ 相等、A 下不同）、Kubelka–Munk 混合。宽色域图例中超出最优色边界的采样比例（AP1 255/729、DWG 429/729、AWG4 377/729、S-Gamut3 374/729）由同一生成脚本用 Colour 的 `XYZ_outer_surface` 凸包检查得到，记录在 `tests/reference/figures.json` 的 `outsideOptimal`，并由单元测试与图例文字逐项核对。
 
 上述最优色体积固定等能白 E、反射率 0–1 与完美漫反射体 Y=1，再经 Bradford 适配到 D65 绘图；适配后的 E 色体积不是重新用 D65 光谱积分的结果。边界外比例不是虚色比例，也不是摄影机色域中不可见颜色的比例：真实的发光色也可能在该反射色体积之外。白色线圈只展示 E 下 L* 10–90 的切片，不构成包含黑白端点的完整外壳。
 
 AgX 的多项式与 outset 输出处于 Gamma 2.2 编码域，先以 2.2 次幂解码成线性 Rec.709 显示值。AgX 与 ACES 拟合共用「线性显示值 → sRGB 分段编码」的显示路径，曲线、晶格和色样均遵循这一约定；Gamma 2.2 不能直接当作 sRGB 分段编码。固定暗部与中灰值用于编码域回归检查，不宣称它们是完整 AgX 的独立参考验证。
+
+CCT 与 Duv 在网页中直接求 CIE 1960 uv 中普朗克轨迹的最近点（查表 + 黄金分割），定义与 Ohno 2013 相同，但不使用其三角 / 抛物线近似；网页的配色函数为 380–780 nm、5 nm，而 Colour 默认用 360–830 nm、1 nm，所以容差按观察者数据的差异设置，而不是浮点精度。计算范围为 1000–100000 K（含端点）；最近点超出范围时返回空结果，页面显示超出计算范围，不把截断端点作为有效 CCT 或 Duv。图中的 CIE 1976 u′v′ 仅为显示坐标，Duv 距离仍在 uv = (u′, 2v′/3) 中计算。
 
 拜耳图例把程序生成的 sRGB 测试图先解码为线性 RGB，再进行 RGGB 采样和双线性插值，最终编码回 sRGB 显示。误差 ×4 与 PSNR 均比较重建图与原图的 sRGB 编码值，PSNR 的峰值为 1；它们不表示线性曝光误差。回归测试覆盖黑白边缘的线性插值、已测通道保留与边界处的均匀色重建。

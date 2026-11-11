@@ -77,6 +77,9 @@ export interface Frame {
   y: [number, number];
   sx: (x: number) => number;
   sy: (y: number) => number;
+  /** Canvas pixel → data value. */
+  ix: (px: number) => number;
+  iy: (py: number) => number;
 }
 /** Map a data rectangle into the canvas; `equal` keeps one unit square. */
 export function frame(
@@ -109,6 +112,8 @@ export function frame(
     y,
     sx: (v) => left + ((v - x[0]) / (x[1] - x[0])) * w,
     sy: (v) => top + h - ((v - y[0]) / (y[1] - y[0])) * h,
+    ix: (px) => x[0] + ((px - left) / w) * (x[1] - x[0]),
+    iy: (py) => y[0] + ((top + h - py) / h) * (y[1] - y[0]),
   };
 }
 export function ticks(from: number, to: number, step: number) {
@@ -217,6 +222,130 @@ export function label(
   ctx.textBaseline = 'middle';
   ctx.fillText(text, x, y);
   ctx.restore();
+}
+
+/**
+ * Point at a figure to read values: pointer hover or drag, and arrow keys
+ * (Shift for larger steps) once the canvas has focus. Positions are CSS
+ * pixels inside the canvas; `null` means the pointer left.
+ */
+export function probe(
+  canvas: HTMLCanvasElement,
+  onProbe: (point: { x: number; y: number } | null) => void,
+) {
+  canvas.tabIndex = 0;
+  canvas.dataset.probe = '';
+  let last: { x: number; y: number } | null = null;
+  const at = (event: PointerEvent) => {
+    const rect = canvas.getBoundingClientRect();
+    last = { x: event.clientX - rect.left, y: event.clientY - rect.top };
+    onProbe(last);
+  };
+  const down = (event: PointerEvent) => {
+    canvas.setPointerCapture(event.pointerId);
+    at(event);
+  };
+  const leave = (event: PointerEvent) => {
+    if (event.pointerType === 'mouse') onProbe(null);
+  };
+  const key = (event: KeyboardEvent) => {
+    const step = event.shiftKey ? 24 : 4;
+    const delta: Record<string, [number, number]> = {
+      ArrowLeft: [-step, 0],
+      ArrowRight: [step, 0],
+      ArrowUp: [0, -step],
+      ArrowDown: [0, step],
+    };
+    const move = delta[event.key];
+    if (!move) return;
+    event.preventDefault();
+    last ??= { x: canvas.clientWidth / 2, y: canvas.clientHeight / 2 };
+    last = {
+      x: Math.min(Math.max(last.x + move[0], 0), canvas.clientWidth),
+      y: Math.min(Math.max(last.y + move[1], 0), canvas.clientHeight),
+    };
+    onProbe(last);
+  };
+  canvas.addEventListener('pointermove', at);
+  canvas.addEventListener('pointerdown', down);
+  canvas.addEventListener('pointerleave', leave);
+  canvas.addEventListener('keydown', key);
+  return () => {
+    canvas.removeEventListener('pointermove', at);
+    canvas.removeEventListener('pointerdown', down);
+    canvas.removeEventListener('pointerleave', leave);
+    canvas.removeEventListener('keydown', key);
+  };
+}
+/** Crosshair marker at a canvas position, clipped to the frame. */
+export function crosshair(
+  ctx: CanvasRenderingContext2D,
+  f: Frame,
+  x: number,
+  y: number,
+) {
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(f.left, f.top, f.width, f.height);
+  ctx.clip();
+  ctx.strokeStyle = '#ffffff60';
+  ctx.setLineDash([2, 3]);
+  ctx.beginPath();
+  ctx.moveTo(x + 0.5, f.top);
+  ctx.lineTo(x + 0.5, f.top + f.height);
+  ctx.moveTo(f.left, y + 0.5);
+  ctx.lineTo(f.left + f.width, y + 0.5);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.strokeStyle = INK.bright;
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.arc(x, y, 5, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.restore();
+}
+
+// ------------------------------------------------------------ code values
+export type CodeRange = 'full' | 'legal';
+export const codeRanges = [
+  { id: 'full', name: 'Full range' },
+  { id: 'legal', name: 'Legal range' },
+] as const;
+/** Black and white code values: full 0…2ⁿ−1, legal 16·2ⁿ⁻⁸…235·2ⁿ⁻⁸ (ITU-R BT.709 / BT.2100 narrow). */
+export function codeLimits(bits: number, range: CodeRange): [number, number] {
+  return range === 'full'
+    ? [0, 2 ** bits - 1]
+    : [16 * 2 ** (bits - 8), 235 * 2 ** (bits - 8)];
+}
+/** Normalized signal → integer code value, clamped to the n-bit container. */
+export function codeValue(signal: number, bits: number, range: CodeRange) {
+  const [black, white] = codeLimits(bits, range);
+  const code = Math.round(black + signal * (white - black));
+  return Math.min(Math.max(code, 0), 2 ** bits - 1);
+}
+/** Code values per unit of normalized signal. */
+export const codeSpan = (bits: number, range: CodeRange) => {
+  const [black, white] = codeLimits(bits, range);
+  return white - black;
+};
+export const rangeLabel = (bits: number, range: CodeRange) => {
+  const [black, white] = codeLimits(bits, range);
+  return `${bits}-bit ${range === 'full' ? 'Full' : 'Legal'} ${black}–${white}`;
+};
+
+/** A compact numeric table for the readout panel. */
+export function readoutTable(head: string[], rows: (string | Node)[][]) {
+  return el(
+    'div',
+    {
+      class: 'readout-grid',
+      style: `grid-template-columns: minmax(0, 1fr) repeat(${head.length - 1}, auto)`,
+    },
+    ...head.map((h, i) => el('span', { class: i ? 'head' : 'head key' }, h)),
+    ...rows.flatMap((row) =>
+      row.map((cell, i) => el('span', i ? {} : { class: 'key' }, cell)),
+    ),
+  );
 }
 
 /** D65 XYZ → displayable sRGB (0–1, clipped) and whether clipping happened. */

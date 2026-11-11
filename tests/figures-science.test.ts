@@ -7,8 +7,10 @@ import { simulateBayer } from '../src/science/bayer';
 import { MACHADO_2009 } from '../src/science/cvd';
 import { gamutCompress, RGC } from '../src/science/gamut-compress';
 import { xyzToXy } from '../src/science/linear';
+import { codeValue } from '../src/figures/plot';
 import {
   blackbodyXy,
+  cctDuv,
   daylightXy,
   D65_SPD,
   A_SPD,
@@ -316,5 +318,46 @@ describe('figure captions quote generated numbers', () => {
       const text = volumeFigures.find((f) => f.id === figure)!.highlight;
       expect(text).toContain(`${reference.outsideOptimal[key]} / 729`);
     }
+  });
+});
+
+describe('CCT and Duv against Colour Science 0.4.4 (Ohno 2013)', () => {
+  it('matches the reference within the 5 nm / 380–780 nm observer tolerance', () => {
+    reference.cct.xy.forEach((xy, i) => {
+      const result = cctDuv(xy as [number, number]);
+      expect(result).not.toBeNull();
+      const { cct, duv } = result!;
+      expect(
+        Math.abs(cct - reference.cct.cct[i]) / reference.cct.cct[i],
+      ).toBeLessThan(2e-3);
+      close(duv, reference.cct.duv[i], 2e-4);
+    });
+  });
+  it('returns the input temperature for points on the Planckian locus', () => {
+    for (const t of [1000, 1000.1, 2000, 3200, 5600, 9000, 99999, 100000]) {
+      const result = cctDuv(blackbodyXy(t));
+      expect(result).not.toBeNull();
+      const { cct, duv } = result!;
+      close(cct, t, t * 1e-4);
+      close(duv, 0, 1e-6);
+    }
+  });
+  it('rejects temperatures beyond either search boundary instead of reporting the endpoint', () => {
+    for (const t of [800, 999.9, 100001, 200000, 1000000]) {
+      expect(cctDuv(blackbodyXy(t))).toBeNull();
+    }
+  });
+});
+
+describe('code values', () => {
+  it('maps full and legal (narrow) ranges', () => {
+    expect(codeValue(0, 10, 'full')).toBe(0);
+    expect(codeValue(1, 10, 'full')).toBe(1023);
+    expect(codeValue(0, 10, 'legal')).toBe(64);
+    expect(codeValue(1, 10, 'legal')).toBe(940);
+    expect(codeValue(0, 8, 'legal')).toBe(16);
+    expect(codeValue(1, 8, 'legal')).toBe(235);
+    expect(codeValue(0.5, 8, 'full')).toBe(128);
+    expect(codeValue(1.2, 10, 'legal')).toBe(1023);
   });
 });

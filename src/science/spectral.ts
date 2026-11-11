@@ -7,6 +7,8 @@ export const WAVELENGTHS: number[] = spectral.cmf.x.map(
   (_, i) => spectral.start + i * spectral.step,
 );
 export const CMF = spectral.cmf;
+/** CIE 1964 10° standard observer, same 380–780 nm / 5 nm grid. */
+export const CMF_10 = spectral.cmf10;
 export const D65_SPD: Spectrum = spectral.d65;
 export const A_SPD: Spectrum = spectral.a;
 export const RGB_CMF = spectral.rgbCmf;
@@ -67,6 +69,11 @@ export function uvToXy([u, v]: [number, number]): [number, number] {
   return [(3 * u) / d, (2 * v) / d];
 }
 /** CIE 1976 u′v′. */
+export function uvPrimeToXy([u, v]: [number, number]): [number, number] {
+  const d = 6 * u - 16 * v + 12;
+  return [(9 * u) / d, (4 * v) / d];
+}
+/** CIE 1976 u′v′. */
 export function xyToUvPrime(xy: [number, number]): [number, number] {
   const [u, v] = xyToUv(xy);
   return [u, 1.5 * v];
@@ -81,8 +88,62 @@ export function isotherm(temperature: number, duv = 0.05) {
     uvToXy([u + normal[0] * d, v + normal[1] * d]),
   ) as [[number, number], [number, number]];
 }
-export const spectralLocus = (): [number, number][] =>
-  WAVELENGTHS.map((_, i) => xyzToXy([CMF.x[i], CMF.y[i], CMF.z[i]]));
+export const spectralLocus = (
+  cmf: { x: number[]; y: number[]; z: number[] } = CMF,
+): [number, number][] =>
+  WAVELENGTHS.map((_, i) => xyzToXy([cmf.x[i], cmf.y[i], cmf.z[i]]));
+
+// Planckian locus in CIE 1960 uv, tabulated by mired (10–1000 MK⁻¹, 1000–100000 K).
+let planckTable: [number, number][] | null = null;
+const planckUv = (mired: number) => xyToUv(blackbodyXy(1e6 / mired));
+/**
+ * Correlated colour temperature and Duv: the nearest point of the Planckian
+ * locus in CIE 1960 uv, found by a table search and golden-section refinement.
+ * Duv is positive above the locus. Same definition as Ohno (2013), solved
+ * directly instead of by the triangular/parabolic approximation.
+ * Returns null when the nearest point lies outside 1000–100000 K.
+ */
+export function cctDuv(
+  xy: [number, number],
+): { cct: number; duv: number } | null {
+  const [u, v] = xyToUv(xy);
+  planckTable ??= Array.from({ length: 991 }, (_, i) => planckUv(10 + i));
+  const distance = (p: [number, number]) => Math.hypot(u - p[0], v - p[1]);
+  let best = 0;
+  planckTable.forEach((p, i) => {
+    if (distance(p) < distance(planckTable![best])) best = i;
+  });
+  // Extend endpoint brackets by one sample so an out-of-range minimum
+  // cannot masquerade as a valid result at the table boundary.
+  let a = 10 + best - 1,
+    b = 10 + best + 1;
+  const ratio = (Math.sqrt(5) - 1) / 2;
+  let c = b - ratio * (b - a),
+    d = a + ratio * (b - a);
+  let fc = distance(planckUv(c)),
+    fd = distance(planckUv(d));
+  for (let i = 0; i < 40; i++) {
+    if (fc < fd) {
+      b = d;
+      d = c;
+      fd = fc;
+      c = b - ratio * (b - a);
+      fc = distance(planckUv(c));
+    } else {
+      a = c;
+      c = d;
+      fc = fd;
+      d = a + ratio * (b - a);
+      fd = distance(planckUv(d));
+    }
+  }
+  const nearest = (a + b) / 2;
+  // Allow the refinement's numerical error at the two inclusive endpoints.
+  if (nearest < 10 - 1e-6 || nearest > 1000 + 1e-6) return null;
+  const mired = Math.min(Math.max(nearest, 10), 1000);
+  const p = planckUv(mired);
+  return { cct: 1e6 / mired, duv: Math.sign(v - p[1]) * distance(p) };
+}
 
 /**
  * MacAdam limits: slices of the Rösch–MacAdam optimal colour solid at constant

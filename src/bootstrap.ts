@@ -1,6 +1,6 @@
 import './style.css';
 import { button, el } from './dom';
-import { figureViews } from './shell';
+import { figureViews, movedFigures } from './shell';
 
 const root = document.querySelector<HTMLDivElement>('#app')!;
 const path = location.pathname.replace(/\/+$/, '') || '/';
@@ -46,7 +46,13 @@ if (path === '/' || preview) {
       const { mountPreviewPage } = await import('./preview');
       if (!timedOut) mountPreviewPage(root);
     } else {
-      const view = new URLSearchParams(location.search).get('view');
+      const params = new URLSearchParams(location.search);
+      const moved = movedFigures[params.get('fig') ?? ''];
+      if (moved && params.get('view') !== moved) {
+        params.set('view', moved);
+        history.replaceState(null, '', `${location.pathname}?${params}`);
+      }
+      const view = params.get('view');
       const figureView = figureViews.find((id) => id === view);
       if (figureView) {
         // Both the page shell and the tab's figure modules load within the timeout.

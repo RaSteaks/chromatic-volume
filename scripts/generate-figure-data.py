@@ -6,7 +6,7 @@ Run with the pinned reference environment (see docs/COLOR-SCIENCE.md):
 
 Outputs
 -------
-src/data/spectral.json   CIE 1931 2° CMFs, Wright & Guild RGB CMFs, D65 / A,
+src/data/spectral.json   CIE 1931 2° and CIE 1964 10° CMFs, Wright & Guild RGB CMFs, D65 / A,
                          camera spectral sensitivities (380–780 nm, 5 nm).
 src/data/gamuts.json     Pointer's gamut (LCh under SC, plus XYZ adapted to
                          D65 with Bradford) and MacAdam (1942) ellipses.
@@ -59,6 +59,7 @@ def write(path: Path, data) -> None:
 
 cmfs = colour.MSDS_CMFS["CIE 1931 2 Degree Standard Observer"].copy().align(SHAPE)
 cmf_values = cmfs.values
+cmfs_10 = colour.MSDS_CMFS["CIE 1964 10 Degree Standard Observer"].copy().align(SHAPE)
 wright_guild = colour.MSDS_CMFS["Wright & Guild 1931 2 Degree RGB CMFs"].copy().align(SHAPE)
 d65 = resample(colour.SDS_ILLUMINANTS["D65"])
 illuminant_a = resample(colour.SDS_ILLUMINANTS["A"])
@@ -88,6 +89,12 @@ write(
             "x": rounded(cmf_values[:, 0]),
             "y": rounded(cmf_values[:, 1]),
             "z": rounded(cmf_values[:, 2]),
+        },
+        "cmf10": {
+            "name": "CIE 1964 10° standard observer",
+            "x": rounded(cmfs_10.values[:, 0]),
+            "y": rounded(cmfs_10.values[:, 1]),
+            "z": rounded(cmfs_10.values[:, 2]),
         },
         "rgbCmf": {
             "name": "Wright & Guild 1931 2° RGB CMFs",
@@ -216,6 +223,21 @@ for start, end in pulses:
 
 dwg = colour.RGB_COLOURSPACES["DaVinci Wide Gamut"]
 
+# CCT and Duv (Ohno 2013) for the chromaticity probe.
+cct_xy = [
+    [0.3127, 0.3290],
+    [0.44757, 0.40745],
+    [0.3457, 0.3585],
+    [0.2800, 0.2900],
+    [0.5000, 0.4150],
+    [0.3300, 0.3600],
+    [0.3800, 0.3600],
+]
+cct_ohno = [
+    colour.temperature.uv_to_CCT_Ohno2013(colour.xy_to_UCS_uv(np.array(xy))).tolist()
+    for xy in cct_xy
+]
+
 # Samples of each linear 9³ cube that fall outside the optimal colour solid
 # (illuminant E, adapted from D65 with Bradford). Quoted in the volume figures.
 from itertools import product as _product  # noqa: E402
@@ -284,6 +306,11 @@ write(
         "daylight": {"temperatures": [4000, 5000, 6500, 10000], "xy": daylight_xy},
         "optimal": optimal,
         "outsideOptimal": outside_optimal,
+        "cct": {
+            "xy": cct_xy,
+            "cct": [value[0] for value in cct_ohno],
+            "duv": [value[1] for value in cct_ohno],
+        },
         "d65xy": colour.XYZ_to_xy(colour.sd_to_XYZ(d65, cmfs, method="Integration")).tolist(),
     },
 )

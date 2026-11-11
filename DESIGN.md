@@ -36,7 +36,7 @@ components:
 
 ## Overview
 
-This is a color-science figure collection for Chinese-speaking users. Six tabs group the figures by kind: 色体积 (the paired-volume workbench), 色彩变换 (morphing 3D lattices), 色度图, 光谱, 曲线 and 像素. The emphasis is on what each figure shows, not on how a conversion is computed: every figure opens with a short 看点 (what to look at), and conversion routes, formulas and scope notes sit in a collapsed 转换细节 block or a quiet note under it. There is still no brand hero, preset cards, guide sections, or marketing footer: the figure is visible immediately on entry.
+This is a color-science figure collection for Chinese-speaking users. Six tabs group the figures by kind: 色体积 (the paired-volume workbench), RGB 变换 (morphing 3D lattices), 色度图, 光谱, 曲线 and 采样与量化. Each tab shows its figure count. Where a Chinese name would be inaccurate, use the original English term (Protanopia, Reference Gamut Compression, Legal range). The emphasis is on what each figure shows, not on how a conversion is computed: every figure opens with a short 看点 (what to look at), and conversion routes, formulas and scope notes sit in a collapsed 转换细节 block or a quiet note under it. There is still no brand hero, preset cards, guide sections, or marketing footer: the figure is visible immediately on entry.
 
 The signature remains the synchronized pair of color-point volumes on the first tab; the other tabs share the same neutral instrument styling. Avoid decorative rainbow UI, promotional copy, and full-page explanations.
 
@@ -52,7 +52,7 @@ Use system fonts, with Chinese fallbacks, so the application runs without font-n
 
 ## Layout
 
-A 44 px tab bar (`.view-tabs`, a `nav`, never a `header`) sits at the top of the framed workbench. On the volume tab the desktop grid is figure list + all models / paired canvases / 看点 inspector; on figure tabs it is figure list / figure stage (title, canvas, one control row) / 看点 panel with live readouts and a scope note. The workbench begins at 16 px from the viewport and fills the available desktop area, with a minimum usable drawing height. Sidebars and the desktop inspector own their internal scrolling. At 1200 px the inspector moves below. At 640 px the sidebar is replaced by a native figure select, and the page scrolls naturally. Both volume canvases retain identical drawing dimensions for meaningful comparisons.
+A 44 px tab bar (`.view-tabs`, a `nav`, never a `header`) sits at the top of the framed workbench. On the volume tab the desktop grid is figure list + all models / paired canvases / 看点 inspector; on figure tabs it is figure list / figure stage (title, grade tag, conditions line, canvas, one control row) / 看点 panel with live readouts and the provenance list. The figure canvas is absolutely positioned inside its host so its pixel size never feeds back into the layout. The workbench begins at 16 px from the viewport and fills the available desktop area, with a minimum usable drawing height. Sidebars and the desktop inspector own their internal scrolling. At 1200 px the inspector moves below. At 640 px the sidebar is replaced by a native figure select, and the page scrolls naturally. Both volume canvases retain identical drawing dimensions for meaningful comparisons.
 
 ## Elevation & Depth
 
@@ -87,6 +87,8 @@ The workbench uses `--radius: 10px`, controls 5–7 px. A viewport-wide mobile w
 ## Do's and Don'ts
 
 - Keep the actual workbench visible immediately on entry; figure tabs open on their first figure.
+- Write figure text for colour-science professionals: no introductory definitions. Each figure has a one-line `conditions` specification (observer, illuminant, domain, sampling), a `grade` (参考 / 近似 / 示意), a 看点 stating the non-obvious result, and structured `provenance` (数据源 / 计算域 / 近似 / 文献). Numbers belong in the live readout and are computed by the figure code, never typed into prose unless verified against that computation.
+- Plotted figures support pointing (pointer hover/drag, arrow keys) through `probe` in `src/figures/plot.ts`. Code values are shown in 10-bit with a Full / Legal range switch (`codeValue`). A figure that moves tabs is listed in `movedFigures` so old links redirect.
 - Lead with the 看点 sentence; keep conversion detail collapsed or in the scope note.
 - Label approximations honestly in the figure note (ACES fit is not ACES 2.0, AgX is a polynomial approximation, H&D and Kubelka–Munk pigments are illustrative).
 - Tone maps return linear display RGB and share sRGB display encoding. Bayer sampling and interpolation operate in linear light; its displayed error and PSNR use the explicitly labeled sRGB code domain. The optimal-solid overlay is an illuminant-E reflectance limit adapted to D65, not a boundary of all visible stimuli; outside counts are not imaginary-color counts. Comparison exports use the same plot-model resolution as the canvas.
