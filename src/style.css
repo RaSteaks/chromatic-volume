@@ -2385,6 +2385,8 @@ textarea {
     font-size: 15px;
   }
   .playback {
+    /* Keep the slider on its own row when explanatory text wraps on mobile. */
+    flex-basis: 100%;
     min-width: 0;
     max-width: none;
     width: 100%;

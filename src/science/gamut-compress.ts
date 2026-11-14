@@ -18,7 +18,9 @@ function compress(distance: number, threshold: number, limit: number) {
 }
 export function gamutCompress(rgb: Vec3): Vec3 {
   const achromatic = Math.max(...rgb);
-  if (achromatic === 0) return [...rgb] as Vec3;
+  // ACES RGC equations 3 and 5: A = 0 sets distance to zero and reconstructs
+  // zero, even when other channels are negative (e.g. [-1, 0, 0]).
+  if (achromatic === 0) return [0, 0, 0];
   return rgb.map((value, i) => {
     const distance = (achromatic - value) / Math.abs(achromatic);
     return (

@@ -1,8 +1,9 @@
 import type { Vec3 } from '../model';
 import { multiply, type Mat3 } from './linear';
 
-// Machado, Oliveira & Fernandes (2009), severity 1.0 (dichromacy),
-// applied to linear Rec.709 / sRGB values.
+// Machado, Oliveira & Fernandes (2009), published severity 1.0 matrices,
+// applied to linear Rec.709 / sRGB values. Rounded protan/deutan matrices
+// are nearly rank 2; tritan is not a strict dichromat projection.
 export const MACHADO_2009: Record<'protan' | 'deutan' | 'tritan', Mat3> = {
   protan: [
     [0.152286, 1.052583, -0.204868],

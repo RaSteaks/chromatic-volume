@@ -207,6 +207,19 @@ describe('spectral colorimetry', () => {
 });
 
 describe('transforms', () => {
+  it.each<Vec3>([
+    [1, 0, 0],
+    [0, 1, 0],
+    [0, 0, 1],
+    [1, 1, 0],
+    [0, 1, 1],
+    [1, 0, 1],
+  ])(
+    'Hill ACES converges to display white for increasing [%s, %s, %s] exposure',
+    (r, g, b) => {
+      expect(acesFitted([r * 10000, g * 10000, b * 10000])).toEqual([1, 1, 1]);
+    },
+  );
   it.each([
     [0.001, 0.00010572854037691071],
     [0.01, 0.0059946587915415215],
@@ -234,12 +247,30 @@ describe('transforms', () => {
         row.forEach((v, c) => close(v, reference.machado[type][r][c], 1e-12)),
       );
   });
-  it('RGC leaves in-gamut colours and maps the limit to the gamut boundary', () => {
+  it('RGC preserves the zone of trust and maps the limit to the gamut boundary', () => {
     expect(gamutCompress([0.5, 0.4, 0.3])).toEqual([0.5, 0.4, 0.3]);
     const r = 1 - RGC.limit[0];
     const compressed = gamutCompress([r, 1, 1]);
     close(compressed[0], 0, 1e-12);
     expect(gamutCompress([-0.3, 0.6, 0.9])[0]).toBeGreaterThan(-0.3);
+  });
+  it.each<Vec3>([
+    [0, 0, 0],
+    [-1, 0, 0],
+    [0, -1, -2],
+    [-2, -1, 0],
+  ])('RGC reconstructs zero when max(%s, %s, %s) is zero', (r, g, b) => {
+    expect(gamutCompress([r, g, b])).toEqual([0, 0, 0]);
+  });
+  it('RGC keeps near-zero positive and negative maxima continuous at zero', () => {
+    for (const a of [-1e-9, 1e-9]) {
+      for (const value of gamutCompress([a, -1, -2])) {
+        expect(Number.isFinite(value)).toBe(true);
+        // For negative A, reconstruction includes both A and -distance·|A|.
+        close(value, 0, 3e-9);
+      }
+    }
+    expect(gamutCompress([-1, -1, -1])).toEqual([-1, -1, -1]);
   });
   it('tone curves are monotonic and bounded', () => {
     let last = -1;

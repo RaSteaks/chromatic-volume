@@ -212,7 +212,7 @@ test('figure links restore the selected figure and play controls animate', async
   await page.locator('#morph').fill('2');
   await expect(canvas).toHaveAttribute('data-progress', '2.000');
   expect(before).not.toBe('2.000');
-  await expect(page.locator('.figure-stage-label')).toContainText('压缩后');
+  await expect(page.locator('.figure-stage-label')).toContainText('（RGC）后');
   // The lattice is a draggable 3D view.
   const camera = await canvas.getAttribute('data-camera');
   await canvas.press('ArrowRight');
@@ -295,6 +295,102 @@ test('AgX curves and lattice swatches share the sRGB display encoding', async ({
     'background-color',
     'rgb(128, 128, 128)',
   );
+});
+
+test('RGB morph labels and AP1 counts describe the current frame', async ({
+  page,
+}) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.goto('/?view=transform&fig=rgc');
+  const status = page.locator('.figure-stage-label');
+  const canvas = page.locator('.figure-host canvas');
+  await expect(status).not.toContainText('个节点在 AP1 之外');
+  await page.locator('#morph').fill('0.6');
+  await expect(status).toHaveText(/^过渡示意：/);
+  await expect(status).not.toContainText('个节点在 AP1 之外');
+  await expect(canvas).toHaveAttribute('aria-description', /R（过渡）/);
+  for (const [progress, count] of [
+    ['1', 206],
+    ['1.6', 117],
+    ['2', 0],
+  ] as const) {
+    await page.locator('#morph').fill(progress);
+    await expect(status).toContainText(
+      `当前 AP1 晶格：${count} / 729 个节点在 AP1 之外`,
+    );
+    await expect(canvas).toHaveAttribute(
+      'aria-description',
+      /R AP1、G AP1、B AP1/,
+    );
+    if (progress === '1.6') {
+      await expect(status).toHaveText(/^过渡示意：/);
+      await page.screenshot({
+        path: 'artifacts/fix-rgb-rgc-transition.png',
+        fullPage: true,
+      });
+    } else await expect(status).not.toHaveText(/^过渡示意：/);
+  }
+  await page.locator('.figure-button[data-figure="aces"]').click();
+  await expect(page.locator('.figure-highlight')).toContainText(
+    '最终趋向显示白',
+  );
+  await expect(page.locator('.swatch-table')).toContainText('最终输出色样');
+  await page.locator('#morph').fill('0.6');
+  await expect(status).toHaveText(/^过渡示意：/);
+  await expect(canvas).toHaveAttribute('aria-description', /R（过渡）/);
+  await page.locator('#morph').fill('1');
+  await expect(status).toHaveText(/^输出：ACES 拟合/);
+  await expect(canvas).toHaveAttribute('aria-description', /R′、G′、B′/);
+});
+
+test('CVD figures expose linear coordinates and final simulation details', async ({
+  page,
+}) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.goto('/?view=transform&fig=protan');
+  for (const type of ['protan', 'deutan', 'tritan']) {
+    await page.locator(`.figure-button[data-figure="${type}"]`).click();
+    await expect(page.locator('.figure-conditions')).toContainText(
+      '线性 sRGB 坐标与均匀采样',
+    );
+    const canvas = page.locator('.figure-host canvas');
+    await expect(canvas).toHaveAttribute(
+      'aria-description',
+      /R lin、G lin、B lin/,
+    );
+    await page.locator('#morph').fill('0.5');
+    await expect(page.locator('.figure-stage-label')).toHaveText(/^过渡示意：/);
+    await page.locator('#morph').fill('1');
+    await expect(page.locator('.figure-stage-label')).toHaveText(
+      '输出：Machado 模拟（线性 sRGB 坐标）',
+    );
+    await expect(page.locator('.figure-readout')).toContainText('最终模拟矩阵');
+    await expect(page.locator('.figure-readout')).toContainText('最小奇异方向');
+    if (type !== 'tritan')
+      await expect(page.locator('.figure-readout')).toContainText('近似秩 2');
+    const before = await canvas.getAttribute('data-camera');
+    await canvas.press('ArrowRight');
+    await expect(canvas).not.toHaveAttribute('data-camera', before!);
+    await page.screenshot({
+      path: `artifacts/fix-rgb-${type}-linear.png`,
+      fullPage: true,
+    });
+  }
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole('combobox', { name: '选择图例' }).selectOption('protan');
+  await page.locator('#morph').fill('1');
+  await expect(page.locator('.figure-stage-label')).toHaveText(
+    '输出：Machado 模拟（线性 sRGB 坐标）',
+  );
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).toBe(true);
+  await page.screenshot({
+    path: 'artifacts/fix-rgb-protan-mobile.png',
+    fullPage: true,
+  });
 });
 
 test('Bayer figure displays reconstruction and PSNR in the documented domain', async ({

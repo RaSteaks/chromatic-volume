@@ -9,6 +9,7 @@ import '../targets';
 import { VolumeView, type VolumeData } from '../volume';
 import type { FigureContext, FigureDef, FigureGroup } from './page';
 import { css, playback, readoutTable } from './plot';
+import { createLattice, type LatticeKeyframe } from './lattice';
 
 const N = 9;
 const nodes: Vec3[] = [];
@@ -32,25 +33,15 @@ const oetf = (v: number) =>
   (Math.abs(v) <= 0.0031308
     ? 12.92 * Math.abs(v)
     : 1.055 * Math.abs(v) ** (1 / 2.4) - 0.055);
-const eotf = (v: number) =>
-  Math.sign(v) *
-  (Math.abs(v) <= 0.04045
-    ? Math.abs(v) / 12.92
-    : ((Math.abs(v) + 0.055) / 1.055) ** 2.4);
 const encode = (rgb: Vec3) => rgb.map(oetf) as Vec3;
-const decode = (rgb: Vec3) => rgb.map(eotf) as Vec3;
 
-interface Keyframe {
-  name: string;
-  position: (u: Vec3) => Vec3;
-  color: (u: Vec3) => Vec3;
-}
 interface LatticeSpec {
-  keyframes: Keyframe[];
-  axes: [string, string, string];
+  keyframes: LatticeKeyframe[];
   zoom?: number;
   swatches?: { label: string; u: Vec3 }[];
-  readout?: (t: number) => string;
+  readout?: (t: number, positions: Vec3[]) => string;
+  /** Re-encode current positions when both endpoints share a physical RGB space. */
+  display?: (position: Vec3, t: number) => Vec3 | undefined;
   /** Static numeric details shown under the swatches. */
   details?: () => HTMLElement;
 }
@@ -69,12 +60,7 @@ function latticeFigure(spec: LatticeSpec) {
       'aria-label': '变换晶格；拖动旋转，方向键旋转，加减号缩放',
     });
     host.append(canvas);
-    const frames = spec.keyframes.map((frame) => ({
-      positions: nodes.map(
-        (u) => frame.position(u).map((v) => v - 0.5) as Vec3,
-      ),
-      colors: nodes.map((u) => frame.color(u)),
-    }));
+    const interpolate = createLattice(spec.keyframes, nodes);
     let t = 0;
     const view = new VolumeView(
       canvas,
@@ -83,29 +69,18 @@ function latticeFigure(spec: LatticeSpec) {
       () => {},
     );
     const status = el('p', { class: 'figure-stage-label' });
-    function interpolate() {
-      const k = Math.min(Math.floor(t), frames.length - 2);
-      const local = t - k;
-      const s = local * local * (3 - 2 * local);
-      const a = frames[k],
-        b = frames[k + 1];
-      return {
-        positions: a.positions.map(
-          (p, i) =>
-            p.map((v, axis) => v + (b.positions[i][axis] - v) * s) as Vec3,
-        ),
-        colors: a.colors.map(
-          (c, i) => c.map((v, axis) => v + (b.colors[i][axis] - v) * s) as Vec3,
-        ),
-        stage: s < 0.5 ? k : k + 1,
-      };
-    }
     function draw() {
-      const { positions, colors, stage } = interpolate();
+      const current = interpolate(t);
+      const positions = current.positions.map(
+        (p) => p.map((v) => v - 0.5) as Vec3,
+      );
+      const colors = current.positions.map(
+        (p, i) => spec.display?.(p, t) ?? current.colors[i],
+      );
       const data: VolumeData = {
         positions,
         colors,
-        axes: spec.axes,
+        axes: current.axes,
         cube: true,
         radius: 2.3,
         linesBehind: true,
@@ -124,7 +99,12 @@ function latticeFigure(spec: LatticeSpec) {
         })),
       };
       view.draw(data, null);
-      status.textContent = `${spec.keyframes[stage].name}${spec.readout ? ` · ${spec.readout(t)}` : ''}`;
+      const values = spec.readout?.(t, current.positions);
+      status.textContent = `${current.label}${values ? ` · ${values}` : ''}`;
+      canvas.setAttribute(
+        'aria-description',
+        `${current.label}；坐标轴：${current.axes.join('、')}`,
+      );
       canvas.dataset.progress = t.toFixed(3);
       canvas.dataset.painted = String(Number(canvas.dataset.painted ?? 0) + 1);
     }
@@ -132,14 +112,14 @@ function latticeFigure(spec: LatticeSpec) {
       id: 'morph',
       label: spec.keyframes.length > 2 ? '变形进度（两步）' : '变形进度',
       min: 0,
-      max: frames.length - 1,
+      max: spec.keyframes.length - 1,
       step: 0.01,
       value: 0,
       speed: 0.35,
       bounce: true,
       format: (v) =>
-        frames.length > 2
-          ? `${v.toFixed(2)} / ${frames.length - 1}`
+        spec.keyframes.length > 2
+          ? `${v.toFixed(2)} / ${spec.keyframes.length - 1}`
           : `${Math.round(v * 100)}%`,
       onChange: (value) => {
         t = value;
@@ -148,7 +128,11 @@ function latticeFigure(spec: LatticeSpec) {
     });
     controls.append(
       play.element,
-      el('span', { class: 'figure-hint' }, '拖动画布旋转 · 聚焦后方向键旋转'),
+      el(
+        'span',
+        { class: 'figure-hint' },
+        '中间帧仅为几何过渡，不代表变换强度；拖动或方向键旋转',
+      ),
     );
     readout.append(status);
     if (spec.swatches) {
@@ -159,8 +143,8 @@ function latticeFigure(spec: LatticeSpec) {
           'div',
           { class: 'swatch-table' },
           el('span', {}, ''),
-          el('span', {}, '变换前'),
-          el('span', {}, '变换后'),
+          el('span', {}, '输入色样'),
+          el('span', {}, '最终输出色样'),
           ...spec.swatches.flatMap(({ label, u }) => [
             el('span', {}, label),
             el('i', { style: `background:${css(first.color(u))}` }),
@@ -192,15 +176,16 @@ const toneSwatches = [
 function toneFigure(name: string, map: (linear: Vec3) => Vec3): LatticeSpec {
   const output = (u: Vec3) => encode(map(sceneLinear(u)));
   return {
-    axes: ['R', 'G', 'B'],
     keyframes: [
       {
         name: '输入：每通道 log₂ 曝光（−6.5 至 +6.5 EV）',
+        axes: ['R EV', 'G EV', 'B EV'],
         position: (u) => u,
         color: (u) => encode(sceneLinear(u).map(clip) as Vec3),
       },
       {
         name: `输出：${name} 后的显示 R′G′B′`,
+        axes: ['R′', 'G′', 'B′'],
         position: output,
         color: (u) => output(u).map(clip) as Vec3,
       },
@@ -244,7 +229,8 @@ function collapsedDirection(m: Mat3) {
 function cvdDetails(type: 'protan' | 'deutan' | 'tritan') {
   const m = MACHADO_2009[type];
   const det = det3(m);
-  const singular = Math.abs(det) < 1e-3;
+  // Published six-decimal coefficients are nearly, rather than exactly, rank 2.
+  const nearSingular = Math.abs(det) < 1e-3;
   const y = (rgb: Vec3) =>
     multiply(m, rgb).reduce((sum, v, i) => sum + v * LUMA[i], 0);
   const signed = (v: number) =>
@@ -252,15 +238,19 @@ function cvdDetails(type: 'protan' | 'deutan' | 'tritan') {
   return el(
     'div',
     { class: 'readout-list' },
-    el('strong', {}, `Machado 矩阵 · 严重度 1.0`),
-    el('span', {}, `det ${singular ? '0.0000（秩 2）' : det.toFixed(4)}`),
+    el('strong', {}, '最终模拟矩阵 · 严重度 1.0'),
     el(
       'span',
       {},
-      `${singular ? '零空间' : '最小奇异方向'}（线性 RGB）${collapsedDirection(m).map(signed).join(' ')}`,
+      `det ${det.toExponential(3)}${nearSingular ? '（近似秩 2）' : ''}`,
+    ),
+    el(
+      'span',
+      {},
+      `最小奇异方向（线性 RGB）${collapsedDirection(m).map(signed).join(' ')}`,
     ),
     readoutTable(
-      ['原色相对亮度 Y', '原始', '模拟'],
+      ['原色相对亮度 Y', '输入', '最终模拟'],
       (
         [
           ['R', [1, 0, 0]],
@@ -272,16 +262,24 @@ function cvdDetails(type: 'protan' | 'deutan' | 'tritan') {
   );
 }
 function cvdFigure(type: 'protan' | 'deutan' | 'tritan'): LatticeSpec {
-  const simulated = (u: Vec3) => encode(simulateCvd(decode(u), type));
+  const simulated = (u: Vec3) => simulateCvd(u, type);
   return {
+    // Leave room for out-of-range vertices and linear-axis labels on narrow canvases.
+    zoom: 0.72,
     details: () => cvdDetails(type),
-    axes: ['R', 'G', 'B'],
+    display: (position) => encode(position).map(clip) as Vec3,
     keyframes: [
-      { name: 'sRGB 立方体', position: (u) => u, color: (u) => u },
       {
-        name: '二色视者看到的颜色（sRGB 编码坐标）',
+        name: '输入：线性 sRGB 立方体',
+        axes: ['R lin', 'G lin', 'B lin'],
+        position: (u) => u,
+        color: encode,
+      },
+      {
+        name: '输出：Machado 模拟（线性 sRGB 坐标）',
+        axes: ['R lin', 'G lin', 'B lin'],
         position: simulated,
-        color: (u) => simulated(u).map(clip) as Vec3,
+        color: (u) => encode(simulated(u)).map(clip) as Vec3,
       },
     ],
     swatches: primaries,
@@ -294,32 +292,44 @@ const toAp1 = (u: Vec3) =>
 const ap1Display = (ap1: Vec3) =>
   new Color('acescg', ap1).to('srgb').coords.map((v) => clip(v ?? 0)) as Vec3;
 const outside = (rgb: Vec3) => rgb.some((v) => v < -1e-9);
-const ap1Nodes = nodes.map(toAp1);
-const compressedNodes = ap1Nodes.map(gamutCompress);
 const rgcSpec: LatticeSpec = {
-  axes: ['R', 'G', 'B'],
   zoom: 0.78,
+  display: (position, t) => (t >= 1 ? ap1Display(position) : undefined),
   keyframes: [
     {
       name: 'S-Gamut3 线性立方体（自身坐标）',
+      axes: ['R S-Gamut3', 'G S-Gamut3', 'B S-Gamut3'],
       position: (u) => u,
       color: (u) => ap1Display(toAp1(u)),
     },
     {
       name: '同一批颜色放进 ACES AP1 坐标：部分通道变成负值',
+      axes: ['R AP1', 'G AP1', 'B AP1'],
       position: toAp1,
       color: (u) => ap1Display(toAp1(u)),
     },
     {
       name: 'ACES 参考色域压缩（RGC）后',
+      axes: ['R AP1', 'G AP1', 'B AP1'],
       position: (u) => gamutCompress(toAp1(u)),
       color: (u) => ap1Display(gamutCompress(toAp1(u))),
     },
   ],
-  readout: (t) =>
-    t < 1.5
-      ? `${ap1Nodes.filter(outside).length} / ${nodes.length} 个节点在 AP1 之外`
-      : `压缩后 ${compressedNodes.filter(outside).length} / ${nodes.length} 个节点仍在 AP1 之外`,
+  // Before t = 1 the morph mixes different coordinate systems; AP1 tests
+  // are meaningful only once every plotted position is expressed in AP1.
+  readout: (t, positions) =>
+    t < 1
+      ? ''
+      : `当前 AP1 晶格：${positions.filter(outside).length} / ${positions.length} 个节点在 AP1 之外（含负通道）`,
+};
+
+export const transformLattices = {
+  aces: toneFigure('ACES 拟合', acesFitted),
+  agx: toneFigure('AgX', agx),
+  protan: cvdFigure('protan'),
+  deutan: cvdFigure('deutan'),
+  tritan: cvdFigure('tritan'),
+  rgc: rgcSpec,
 };
 
 const figures: FigureDef[] = [
@@ -331,7 +341,7 @@ const figures: FigureDef[] = [
       '每通道 0.18·2^[−6.5, +6.5] · AP1 近似矩阵 + 有理函数 · 输出 sRGB 编码',
     grade: 'approximate',
     highlight:
-      '曲线逐通道作用，改写了通道比例：高饱和高光不向白点收敛，而是沿立方体的棱滑向 R、G、B、C、M、Y 六个方向（"notorious six"）。曲线前后各有一个矩阵（含 RRT 的饱和度调整），中性轴以外的形变不全是曲线造成的。',
+      '前后矩阵与逐通道有理函数共同改变通道比例，有限曝光范围内会出现偏色和通道裁剪。固定非零的非负 RGB 比例提高曝光时，前置矩阵使三个通道都进入肩部，最终趋向显示白；图中有限采样的边界不等于无限曝光的极限。',
     provenance: {
       data: 'Stephen Hill，BakingLab ACES.hlsl',
       domain:
@@ -340,7 +350,7 @@ const figures: FigureDef[] = [
         '对 ACES 1.x RRT + sRGB ODT 的拟合，不是 ACES 2.0，也不是完整的输出变换',
       reference: 'AMPAS ACES 1.x；Hill, BakingLab, 2016',
     },
-    mount: latticeFigure(toneFigure('ACES 拟合', acesFitted)),
+    mount: latticeFigure(transformLattices.aces),
   },
   {
     id: 'agx',
@@ -350,62 +360,68 @@ const figures: FigureDef[] = [
       'inset → log₂ [−12.47, +4.03] EV → 6 次多项式 → outset · sRGB 编码',
     grade: 'approximate',
     highlight:
-      'inset 矩阵先把原色向消色轴收拢，高饱和输入的三个通道因此更早一起进入肩部，高光沿接近直线的路径去饱和并汇向白点。与 ACES 拟合对照看棱上的颜色：这里不再停留在原色或二次色上。',
+      'inset 矩阵混合通道，log₂ 对比度曲线压缩高光，再经 outset 和显示编码形成输出。固定非零的非负 RGB 比例提高曝光时，高光趋向近白色；与 Hill 拟合的差异在去饱和路径和裁剪行为，可对照有限曝光下的晶格形状。',
     provenance: {
       data: 'Benjamin Wrensch，Minimal AgX implementation, 2023',
       domain:
         '线性 Rec.709 输入；多项式输出按 gamma 2.2 解码为线性显示值，再统一 sRGB 编码',
       approximation:
-        '默认对比度的多项式近似，与 Blender 中完整的 AgX（含 look 与 LUT）有细微差别',
+        '默认对比度的六次多项式近似，不含可选 look；未量化与 Blender 完整 AgX／OCIO 输出的差异',
       reference: 'Troy Sobotka, AgX',
     },
-    mount: latticeFigure(toneFigure('AgX', agx)),
+    mount: latticeFigure(transformLattices.agx),
   },
   {
     id: 'protan',
     number: 18,
     title: 'Protanopia',
-    conditions: 'Machado 2009 · 严重度 1.0 · 线性 sRGB · 显示为 sRGB 编码坐标',
+    conditions:
+      'Machado 2009 · 严重度 1.0 · 线性 sRGB 坐标与均匀采样 · 点色经 sRGB 编码',
     grade: 'reference',
     highlight:
-      '矩阵秩为 2：立方体被压成过灰轴的一张平面，零空间方向（右侧）就是混淆方向，主要沿 R 轴。与 deutan 的区别在亮度：缺 L 视锥后红原色的相对亮度几乎减半。',
+      '公布矩阵近似秩 2：线性 RGB 立方体被压到近似经过灰轴的平面，最小奇异方向主要沿 R 轴。矩阵系数的舍入使厚度不严格为零；模拟后红原色的相对亮度几乎减半。',
     provenance: {
       data: 'Machado, Oliveira, Fernandes 2009 严重度 1.0 矩阵，已对照 Colour Science 0.4.4',
-      domain: '线性 sRGB 中矩阵相乘；晶格坐标与色样为 sRGB 编码值',
+      domain:
+        '线性 sRGB 中均匀采样并做矩阵相乘；位置保留线性值，点色与色样经 sRGB 编码后裁剪显示',
       reference: 'Machado et al., IEEE TVCG 15(6), 2009',
     },
-    mount: latticeFigure(cvdFigure('protan')),
+    mount: latticeFigure(transformLattices.protan),
   },
   {
     id: 'deutan',
     number: 19,
     title: 'Deuteranopia',
-    conditions: 'Machado 2009 · 严重度 1.0 · 线性 sRGB · 显示为 sRGB 编码坐标',
+    conditions:
+      'Machado 2009 · 严重度 1.0 · 线性 sRGB 坐标与均匀采样 · 点色经 sRGB 编码',
     grade: 'reference',
     highlight:
-      '同样秩为 2、塌成一张平面，但混淆方向含更多 G 分量；红原色的相对亮度不降反升，红绿混淆表现为近似同明度的混淆，这是 deutan 比 protan 更难靠明暗区分红绿的原因。',
+      '同样近似秩 2，线性晶格接近平面，但最小奇异方向含更多 G 分量。与 protan 对照，红原色的模拟相对亮度升高；右侧列出输入与最终模拟的亮度，便于区分几何压缩与亮度变化。',
     provenance: {
       data: 'Machado 2009 严重度 1.0 矩阵，已对照 Colour Science 0.4.4',
-      domain: '线性 sRGB 中矩阵相乘；晶格坐标与色样为 sRGB 编码值',
+      domain:
+        '线性 sRGB 中均匀采样并做矩阵相乘；位置保留线性值，点色与色样经 sRGB 编码后裁剪显示',
       reference: 'Machado et al., IEEE TVCG 15(6), 2009',
     },
-    mount: latticeFigure(cvdFigure('deutan')),
+    mount: latticeFigure(transformLattices.deutan),
   },
   {
     id: 'tritan',
     number: 20,
     title: 'Tritanopia',
-    conditions: 'Machado 2009 · 严重度 1.0 · 线性 sRGB · 显示为 sRGB 编码坐标',
+    conditions:
+      'Machado 2009 · 严重度 1.0 · 线性 sRGB 坐标与均匀采样 · 点色经 sRGB 编码',
     grade: 'reference',
     highlight:
-      '与另外两个不同，这个矩阵并不奇异（det ≠ 0）：立方体被压成一块很薄的板而不是平面，压缩方向以 B 为主。红绿差异基本保留。',
+      '这个矩阵并不奇异（det ≠ 0）：线性 RGB 立方体被压缩但仍有三维体积，最小奇异方向以 B 为主。它不是严格的二色视平面投影。',
     provenance: {
       data: 'Machado 2009 严重度 1.0 矩阵，已对照 Colour Science 0.4.4',
-      domain: '线性 sRGB 中矩阵相乘；晶格坐标与色样为 sRGB 编码值',
+      domain:
+        '线性 sRGB 中均匀采样并做矩阵相乘；位置保留线性值，点色与色样经 sRGB 编码后裁剪显示',
       approximation: 'Machado 模型的 tritan 结果不是严格的二色视投影',
       reference: 'Machado et al., IEEE TVCG 15(6), 2009',
     },
-    mount: latticeFigure(cvdFigure('tritan')),
+    mount: latticeFigure(transformLattices.tritan),
   },
   {
     id: 'rgc',
@@ -415,13 +431,13 @@ const figures: FigureDef[] = [
       'S-Gamut3 → AP1 · 阈值 0.815 / 0.803 / 0.880 · 极限 1.147 / 1.264 / 1.312 · 幂 1.2',
     grade: 'reference',
     highlight:
-      '每个通道按到消色轴的距离 d = (max − c) / max 压缩：阈值内恒等，阈值到极限之间用幂曲线把极限映射到色域边界 d = 1。三个通道各自压缩，色相只是近似保持；极限以外的点仍在框外。',
+      '令 A = max(R,G,B)，按距离 d = (A − c) / |A| 压缩；A = 0 时输出零。阈值内恒等，极限映射到 AP1 边界 d = 1，超过极限仍可能含负通道。AP1 色域不限制通道上限，超过参考立方体的 1 不代表越界。',
     provenance: {
       data: 'ACES 1.3 RGC 参数',
       domain: 'S-Gamut3 线性值经矩阵进入 AP1（ACEScg）坐标后压缩',
       reference: 'AMPAS, ACES Reference Gamut Compression, ACES 1.3, 2021',
     },
-    mount: latticeFigure(rgcSpec),
+    mount: latticeFigure(transformLattices.rgc),
   },
 ];
 export const groups: FigureGroup[] = [{ name: 'RGB 变换', figures }];
