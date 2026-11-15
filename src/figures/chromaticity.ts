@@ -763,7 +763,7 @@ const figures: FigureDef[] = [
     conditions: 'CIE 1931 2° · u′v′ / xy · 原生白点，无适配',
     grade: 'reference',
     highlight:
-      '图中显示 CIE 1976 u′v′，Duv 则按 CIE 1960 uv（u = u′，v = 2v′/3）中到普朗克轨迹的带符号距离计算；切到 xy 对照同一组色域三角形的面积变化。ProPhoto 与 AP1 的绿、蓝基色以及摄影机色域的部分基色落在光谱轨迹外，三角形覆盖的是坐标范围而非可实现的刺激。',
+      '准备监看或交付时，可在这里对照摄影机、工作与显示色域的色度边界，并放大白点附近观察 CCT 与 Duv。三角形不包含亮度、传递函数或观看条件；其中的 Display P3 也不能直接当作完整的影院放映条件。Duv 始终按 CIE 1960 uv 计算。',
     provenance: {
       data: 'CIE 1931 2° 与 CIE 1964 10° 标准观察者（Colour Science 0.4.4）；色域基色取自各空间的 RGB→XYZ 矩阵',
       domain:
@@ -781,7 +781,7 @@ const figures: FigureDef[] = [
     conditions: 'MacAdam 1942 · 观察者 PGN · 25 个椭圆 ×10 · xy ↔ u′v′',
     grade: 'reference',
     highlight:
-      'u′v′ 把面积离散度压低约两个数量级，中位长短轴比也下降；但最扁的椭圆在 u′v′ 中反而更扁。1976 UCS 是射影变换，只能改善尺度，不能消除方向相关的各向异性。',
+      '监看对色时，色度图上同样长的位移不一定同样明显。切换 xy 与 u′v′，观察椭圆大小和方向的变化；u′v′ 改善了尺度一致性，但并未消除方向差异。这里是特定实验条件下放大 10 倍的椭圆，不能直接作为显示器验收容差。',
     provenance: {
       data: 'Wyszecki & Stiles 表 2(5.4.1) 计算值，经 Colour Science 0.4.4',
       domain: '椭圆在 xy 中按参数方程采样，u′v′ 中的形状由逐点射影变换得到',
@@ -797,7 +797,7 @@ const figures: FigureDef[] = [
     conditions: 'CIELAB (D65) vs Oklab · 等 L、等 h · C 从 0 到 sRGB 原色',
     grade: 'reference',
     highlight:
-      '两个空间对蓝的等色相判断分歧最大，CIELAB 的等 h 线在 Oklab 中漂移数十度，色带中段呈紫色；其次是黄。这与 Hung–Berns 的等色相实验一致，CIELAB 在蓝区的色相非线性是已知缺陷；Oklab 的色相参照了 IPT（Ebner–Fairchild）数据。',
+      '降低蓝色灯光或服装的饱和度时，保持模型中的色相角不变，仍可能得到不同的中间色。对照 CIELAB 与 Oklab 的等 L、等 h 路径，蓝区分歧尤其明显。这里量化的是两个空间的分歧，哪条更接近视觉恒定色相仍需实验依据。',
     provenance: {
       data: 'sRGB 六个原色与二次色',
       domain:

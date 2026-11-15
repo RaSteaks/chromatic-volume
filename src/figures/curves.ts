@@ -551,7 +551,7 @@ const figures: FigureDef[] = [
       '横轴 log₂(L / 漫反射白) · PQ 白 = 203 cd/m² · HLG 白 = 75% · Log 以 0.18 为中灰',
     grade: 'reference',
     highlight:
-      '同一横轴下比较漫反射白的码值和白以上的余量。Log 曲线在中灰以上近似直线，斜率视图中的平台高度就是每档分到的码值数；PQ 在高亮度段也趋于这种对数行为，暗部每档码值逐渐减少，这是按 Barten 对比敏感度分配码字的结果。',
+      '在摄影机记录、调色工作编码与 HDR 交付之间切换时，先确认曲线用途和输入标尺。对照 LogC4、S-Log3、DaVinci Intermediate 与 PQ／HLG 的中灰、白和高光码值；斜率显示每档分配的码值数。这里的编码余量不等于摄影机传感器的实测动态范围。',
     provenance: {
       data: '各标准公式；LogC4、S-Log3、DaVinci Intermediate 已对照 Colour Science 0.4.4 验证',
       domain:
@@ -594,7 +594,7 @@ const figures: FigureDef[] = [
       '横轴 log₂(L / 0.18) · Reinhard、Hable、ACES 拟合、AgX · 输出 sRGB 编码',
     grade: 'approximate',
     highlight:
-      '中灰落点决定整体亮度，斜率峰的位置决定对比集中在哪一段。AgX 的斜率峰几乎正好在中灰，ACES 拟合与 Hable 依次向高光移动约 1 档；Reinhard 的肩部最长，接近白要再上去近 8 档。直接裁剪的斜率在裁剪点前持续上升，之后归零。',
+      '处理中灰、窗外高光或灯具亮部时，可用曲线观察显示对比如何分配。中灰落点影响整体亮度，斜率峰说明对比集中在哪段，肩部压缩高光差异。这里仅比较 R = G = B 的中性输入；饱和灯光的偏色与去饱和需结合「RGB 变换」晶格观察。',
     provenance: {
       data: '各算子公开公式',
       domain: '单通道中性输入（R = G = B），输出为线性显示值后统一做 sRGB 编码',
@@ -633,7 +633,7 @@ const figures: FigureDef[] = [
     conditions: '密度 D 对 log₁₀ H · 逻辑斯谛示意 · 片基灰雾 0.15',
     grade: 'illustrative',
     highlight:
-      '直线部斜率即 γ；宽容度 = 直线部跨度 / log₁₀2。γ 增大时直线部在 log H 上收窄，同一密度范围对应更少的档位。趾部与肩部的边界取曲率极值点。',
+      '理解电影负片的曝光与反差，可先看曝光量如何变成光学密度：趾部、直线部和肩部承担不同响应。此示意中增大 γ，会让同一密度范围对应的曝光档数减少。纵轴是密度，不是屏幕亮度；它未模拟具体胶片、冲洗或印片 Look。',
     provenance: {
       domain: '密度对 log₁₀ 相对曝光量',
       approximation:

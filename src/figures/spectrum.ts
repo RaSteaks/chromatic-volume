@@ -804,7 +804,7 @@ const figures: FigureDef[] = [
     conditions: 'CIE 1931 2° · 可叠加 CIE 1964 10° · 380–780 nm / 5 nm',
     grade: 'reference',
     highlight:
-      'x̄ 在 440 nm 附近的次峰让短波端色度几乎不动：380–420 nm 的光谱轨迹在 xy 中挤在 (0.17, 0.005) 附近。ȳ 即 V(λ)；叠加的 10° 函数中 ȳ₁₀ 不是光度函数。',
+      '理解片场光源的颜色与亮度，需要看光谱如何经标准观察者加权成 XYZ。移动读数可比较不同波长的贡献；2° 的 ȳ 对应光度函数 V(λ)。这些曲线描述人眼配色参照，摄影机感光响应需另看「相机灵敏度与 Luther 条件」。',
     provenance: {
       data: 'CIE 1931 2° 与 CIE 1964 10° 标准观察者（Colour Science 0.4.4）',
       domain: '线性插值读取 5 nm 网格之间的波长',
@@ -820,7 +820,7 @@ const figures: FigureDef[] = [
     conditions: 'Wright & Guild 1931 · 2° · 原色 700 / 546.1 / 435.8 nm',
     grade: 'reference',
     highlight:
-      'r̄ 在 440–545 nm 为负（极值约 515 nm），ḡ 在 400–435 nm、b̄ 在 550–625 nm 也有小幅负值：任何三个真实原色都无法匹配全部光谱色。XYZ 是对这组函数的线性变换，选择条件是全部非负且 ȳ = V(λ)。',
+      '高饱和灯光在监视器上可能无法原样重现，三原色配色实验能解释这种范围限制。这里部分波长需要负的配色系数，说明给定三个真实原色无法用全正混合匹配全部光谱色。曲线属于 Wright–Guild 实验原色，并非某款监视器或摄影机的 RGB 响应。',
     provenance: {
       data: 'Wright & Guild 1931 2° RGB CMFs（Colour Science 0.4.4）',
       domain: '原色单位按 CIE 1931 约定（等能白下三刺激值相等）',
@@ -835,7 +835,7 @@ const figures: FigureDef[] = [
     conditions: 'Planck · c₂ = 1.4388×10⁻² m·K · 560 nm 归一 · 2000–10000 K',
     grade: 'reference',
     highlight:
-      'Wien 峰 λmax = b/T：约 3715 K 以下峰值在 780 nm 外，约 7625 K 以上移出 380 nm，可见区内只看到峰的一侧。色温轴按 mired（10⁶/T）近似感知均匀，高色温端相同的开尔文差对应的色度变化越来越小。',
+      '可用钨丝灯的暖光作参照，观察理想黑体随温度变化的光谱和色度。色温按 mired 排列，相同开尔文差在高色温端造成的色度变化更小。曲线在 560 nm 归一，只比较光谱形状；同色温 LED 的真实光谱仍可能不同。',
     provenance: {
       data: '普朗克公式直接计算',
       domain:
@@ -851,7 +851,7 @@ const figures: FigureDef[] = [
     conditions: 'D65 ↔ A · Bradford 适配到 D65 · ΔE2000',
     grade: 'illustrative',
     highlight:
-      '样本 2 = 样本 1 + metameric black（与 D65 加权配色函数正交的光谱分量），因此只在 D65 下不可见；换成 A，这个分量产生非零三刺激值，适配后的 ΔE00 即这对样本的照明同色异谱程度。',
+      '换景或换灯后，原本相近的戏服、道具颜色可能难以重新匹配。这里用两条构造反射率演示：它们在 D65 下同色，换成 A 光源后出现差异，即使适配到共同白点也不消失。ΔE00 描述这对样本的差异，不代表实测戏服或具体摄影机。',
     provenance: {
       data: '构造光谱，不是实测材料',
       domain: 'CIE 1931 2°；A 光源下的颜色经 Bradford 适配到 D65 显示',
@@ -866,7 +866,7 @@ const figures: FigureDef[] = [
     conditions: 'ANSI/IES TM-30-18 · 99 CES · CAM02-UCS · 16 色相区间',
     grade: 'reference',
     highlight:
-      '箭头是每个色相区间内被测光源相对参考光源的平均 a′b′ 偏移，按参考半径归一。Rg 是两个多边形的面积比，Rf 来自 99 个样本的平均 ΔE′；HP1 与 LED-RGB1 的 Rg 分居两端，但 Rf 都偏低。',
+      '为布景与服装选灯时，除了色温，还可观察各色相区间相对参考光源的变化。箭头表示 99 个样本分组后的平均偏移，Rf 与 Rg 分别概括保真度和色域变化。TM-30 基于人眼色貌模型；这些数值不等于某台电影摄影机的还原误差。',
     provenance: {
       data: '99 条 CES 光谱与各光源 SPD，Colour Science 0.4.4 离线计算',
       domain:
@@ -883,7 +883,7 @@ const figures: FigureDef[] = [
     conditions: 'NPL 实测灵敏度 · 对 x̄ȳz̄ 的最小二乘 3×3 拟合',
     grade: 'reference',
     highlight:
-      '残差不为零即不满足 Luther–Ives 条件：不存在把相机 RGB 精确变到 XYZ 的固定矩阵，某些对人眼同色异谱的光谱在相机中不同，反之亦然。右侧按通道列出残差。',
+      '多机匹配时，一组 3×3 矩阵未必能在所有灯光与材质下都精确对齐颜色。图中用实测相机响应拟合标准观察者，残差非零说明不满足 Luther–Ives 条件。这里的 Nikon／Sigma 数据用于解释原理，不代表电影摄影机的实测匹配结果。',
     provenance: {
       data: 'NPL 相机光谱灵敏度（Colour Science 0.4.4）',
       domain: '逐波长、等权最小二乘；目标为 CIE 1931 2°',
@@ -900,7 +900,7 @@ const figures: FigureDef[] = [
     conditions: '高斯光谱 · 单常数 Kubelka–Munk · D65 · CIE 1931 2°',
     grade: 'illustrative',
     highlight:
-      '光谱相加时，混合色的色度严格落在两光色度的连线上（重心规则）。颜料混合的是 K/S，反射率非线性变化，混合色偏离连线且 Y 低于两者的线性插值。',
+      '布光叠加有色光与置景混合颜料，会得到不同的颜色路径。光谱相加时，混合色度落在两光的连线上；此处颜料模型混合 K/S，反射率非线性变化，路径偏离直线。光谱和颜料均为理想化样本，可用于理解差异，不能据此配制真实涂料。',
     provenance: {
       data: '理想化高斯光源与平滑反射率曲线，不对应真实颜料',
       domain: '颜料在 D65 下积分；偏离距离在 xy 中计算',

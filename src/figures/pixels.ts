@@ -492,7 +492,7 @@ const figures: FigureDef[] = [
     conditions: 'BT.709 Y′CbCr（非恒定亮度）· 块平均 · 最近邻重建',
     grade: 'illustrative',
     highlight:
-      'Y′ 一个像素都没改，重建后的线性亮度 Y 却变了：Y′ 由非线性 R′G′B′ 算出，部分亮度信息留在 Cb/Cr 中，色度被平均后这部分随之丢失。误差集中在饱和色的边缘，这就是非恒定亮度编码的固有缺陷，BT.2020 的 YcCbcCrc 正为此而设。',
+      '观察字幕彩边、霓虹细线或绿幕边缘时，要留意色度分辨率。切换 4:4:4、4:2:2 与 4:2:0，比较测试图边缘的变化：即使编码亮度 Y′ 保留，重建后的线性亮度 Y 仍可能改变。这里用块平均与最近邻重建说明机制，不对应某种具体编码器。',
     provenance: {
       data: '程序生成的测试图',
       domain:
@@ -511,7 +511,7 @@ const figures: FigureDef[] = [
     conditions: '均匀量化 · 8 / 10-bit · Full / Legal range',
     grade: 'illustrative',
     highlight:
-      '同一段信号，10-bit 的级数是 8-bit 的 4 倍；Legal range 只用 219/255 的码字，同一区间的级数少约 14%，台阶相应变宽。拉伸显示时台阶宽度与每级的信号步长成正比。',
+      '天空、烟雾和暗部渐变在后期拉开对比后，量化台阶更容易显露。切换 8／10-bit 与 Full／Legal range，观察同一段信号的码值步长；10-bit 级数为 8-bit 的 4 倍。放大对比仅用于看清台阶，实际画面还会受噪声、抖动与编码影响。',
     provenance: {
       domain:
         '对归一化信号直接量化；Legal range 取 BT.709 / BT.2100 窄范围 16–235（8-bit）、64–940（10-bit）',
@@ -528,7 +528,7 @@ const figures: FigureDef[] = [
     conditions: 'RGGB · 线性光采样 · 双线性插值 · PSNR 在 sRGB 编码域',
     grade: 'illustrative',
     highlight:
-      '双线性插值在平坦区近乎无损，误差集中在高对比边缘和接近 Nyquist 的细条纹：R、B 的采样率只有 G 的一半，插值后三通道的边缘位置不一致，形成伪色与拉链纹。',
+      '拍摄细纹服装或高对比布景时，伪色与边缘拉链纹可能来自采样和去马赛克。对照测试图、RGGB 马赛克、重建与误差，观察细条纹和斜边；R、B 的采样点数各为 G 的一半。这里采用双线性插值，不代表具体摄影机或 RAW 软件的成像质量。',
     provenance: {
       data: '程序生成的 sRGB 测试图',
       domain:

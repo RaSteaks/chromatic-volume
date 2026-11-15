@@ -341,7 +341,7 @@ const figures: FigureDef[] = [
       '每通道 0.18·2^[−6.5, +6.5] · AP1 近似矩阵 + 有理函数 · 输出 sRGB 编码',
     grade: 'approximate',
     highlight:
-      '前后矩阵与逐通道有理函数共同改变通道比例，有限曝光范围内会出现偏色和通道裁剪。固定非零的非负 RGB 比例提高曝光时，前置矩阵使三个通道都进入肩部，最终趋向显示白；图中有限采样的边界不等于无限曝光的极限。',
+      '分析霓虹、车灯等高饱和高光时，观察通道比例如何随显示变换改变。Hill 拟合在有限曝光内会出现偏色和通道裁剪；固定非零的非负 RGB 比例继续提高曝光，最终趋向显示白。晶格展示该近似公式的响应，有限采样边界不等于无限曝光极限。',
     provenance: {
       data: 'Stephen Hill，BakingLab ACES.hlsl',
       domain:
@@ -360,7 +360,7 @@ const figures: FigureDef[] = [
       'inset → log₂ [−12.47, +4.03] EV → 6 次多项式 → outset · sRGB 编码',
     grade: 'approximate',
     highlight:
-      'inset 矩阵混合通道，log₂ 对比度曲线压缩高光，再经 outset 和显示编码形成输出。固定非零的非负 RGB 比例提高曝光时，高光趋向近白色；与 Hill 拟合的差异在去饱和路径和裁剪行为，可对照有限曝光下的晶格形状。',
+      '在 CG 与实拍合成的显示流程中，高光外观取决于所用显示变换。此处 Minimal AgX 通过 inset、log₂ 曲线和 outset 改变通道关系，高曝光趋向近白色。与 Hill 拟合对照去饱和路径和裁剪行为；这组测试色不能替代完整镜头的外观评估。',
     provenance: {
       data: 'Benjamin Wrensch，Minimal AgX implementation, 2023',
       domain:
@@ -379,7 +379,7 @@ const figures: FigureDef[] = [
       'Machado 2009 · 严重度 1.0 · 线性 sRGB 坐标与均匀采样 · 点色经 sRGB 编码',
     grade: 'reference',
     highlight:
-      '公布矩阵近似秩 2：线性 RGB 立方体被压到近似经过灰轴的平面，最小奇异方向主要沿 R 轴。矩阵系数的舍入使厚度不严格为零；模拟后红原色的相对亮度几乎减半。',
+      '评估字幕、道具信号或画面中的红色标记时，可观察色彩区分与明暗区分是否同时减弱。此模型使红原色的相对亮度几乎减半，线性晶格接近平面；公布矩阵近似秩 2，舍入后仍有微小厚度。这里演示色样响应，未分析具体影片。',
     provenance: {
       data: 'Machado, Oliveira, Fernandes 2009 严重度 1.0 矩阵，已对照 Colour Science 0.4.4',
       domain:
@@ -396,7 +396,7 @@ const figures: FigureDef[] = [
       'Machado 2009 · 严重度 1.0 · 线性 sRGB 坐标与均匀采样 · 点色经 sRGB 编码',
     grade: 'reference',
     highlight:
-      '同样近似秩 2，线性晶格接近平面，但最小奇异方向含更多 G 分量。与 protan 对照，红原色的模拟相对亮度升高；右侧列出输入与最终模拟的亮度，便于区分几何压缩与亮度变化。',
+      '当画面的信息依赖红绿对比时，可与 Protanopia 对照观察哪些颜色趋于接近。这里线性晶格同样接近平面，但最小奇异方向含更多 G 分量，红原色的模拟相对亮度升高。右侧最终读数帮助区分颜色混淆与亮度变化。',
     provenance: {
       data: 'Machado 2009 严重度 1.0 矩阵，已对照 Colour Science 0.4.4',
       domain:
@@ -413,7 +413,7 @@ const figures: FigureDef[] = [
       'Machado 2009 · 严重度 1.0 · 线性 sRGB 坐标与均匀采样 · 点色经 sRGB 编码',
     grade: 'reference',
     highlight:
-      '这个矩阵并不奇异（det ≠ 0）：线性 RGB 立方体被压缩但仍有三维体积，最小奇异方向以 B 为主。它不是严格的二色视平面投影。',
+      '对依靠蓝黄差异区分的字幕或图形，可用此图理解颜色分离减弱的方向。该 Machado 矩阵不奇异（det ≠ 0），线性晶格仍保留三维体积，最小奇异方向以 B 为主；它不是严格的二色视平面投影。',
     provenance: {
       data: 'Machado 2009 严重度 1.0 矩阵，已对照 Colour Science 0.4.4',
       domain:
@@ -431,7 +431,7 @@ const figures: FigureDef[] = [
       'S-Gamut3 → AP1 · 阈值 0.815 / 0.803 / 0.880 · 极限 1.147 / 1.264 / 1.312 · 幂 1.2',
     grade: 'reference',
     highlight:
-      '令 A = max(R,G,B)，按距离 d = (A − c) / |A| 压缩；A = 0 时输出零。阈值内恒等，极限映射到 AP1 边界 d = 1，超过极限仍可能含负通道。AP1 色域不限制通道上限，超过参考立方体的 1 不代表越界。',
+      '高饱和灯光进入 ACES 工作空间时，可能产生负 AP1 通道。此图从 S-Gamut3 转到 AP1，再按 d = (A − c) / |A| 压缩，A = max(R,G,B)，A = 0 时输出零。观察当前负通道点数；RGC 不是最终显示色域映射，AP1 通道大于 1 也不代表越界。',
     provenance: {
       data: 'ACES 1.3 RGC 参数',
       domain: 'S-Gamut3 线性值经矩阵进入 AP1（ACEScg）坐标后压缩',
