@@ -9,7 +9,7 @@ try {
     deviceScaleFactor: 1,
     reducedMotion: 'no-preference',
   });
-  await page.goto(new URL('/preview?motion=off', origin).href);
+  await page.goto(new URL('/preview?motion=off&display=srgb', origin).href);
   await page.locator('.preview-page[data-ready="true"]').waitFor();
   const path = fileURLToPath(new URL('../public/cover.png', import.meta.url));
   await page.screenshot({ path });

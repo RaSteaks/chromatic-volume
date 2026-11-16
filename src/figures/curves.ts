@@ -226,7 +226,6 @@ function curveFigure(options: {
       value: exposure,
       speed: 2.2,
       bounce: true,
-      autoplay: false,
       format: (v) => `${v >= 0 ? '+' : ''}${v.toFixed(1)}`,
       onChange: (v) => {
         exposure = v;
@@ -545,7 +544,7 @@ function hdCurve({ host, controls, readout }: FigureContext) {
 const figures: FigureDef[] = [
   {
     id: 'transfer',
-    number: 32,
+    number: 33,
     title: '传递函数',
     conditions:
       '横轴 log₂(L / 漫反射白) · PQ 白 = 203 cd/m² · HLG 白 = 75% · Log 以 0.18 为中灰',
@@ -588,7 +587,7 @@ const figures: FigureDef[] = [
   },
   {
     id: 'tonemap',
-    number: 33,
+    number: 34,
     title: '色调映射曲线',
     conditions:
       '横轴 log₂(L / 0.18) · Reinhard、Hable、ACES 拟合、AgX · 输出 sRGB 编码',
@@ -628,7 +627,7 @@ const figures: FigureDef[] = [
   },
   {
     id: 'hd',
-    number: 34,
+    number: 35,
     title: '胶片特性曲线（H&D）',
     conditions: '密度 D 对 log₁₀ H · 逻辑斯谛示意 · 片基灰雾 0.15',
     grade: 'illustrative',

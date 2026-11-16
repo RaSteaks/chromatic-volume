@@ -40,6 +40,9 @@ const paths = {
   sliders: 'M4 5h16M4 12h16M4 19h16M8 2v6m8 1v6m-6 1v6',
   rotate: 'M20 7a9 9 0 1 0 1 9M20 2v5h-5',
   chevron: 'm9 5 7 7-7 7',
+  back: 'm15 5-7 7 7 7',
+  search: 'm21 21-4.3-4.3M11 18a7 7 0 1 1 0-14 7 7 0 0 1 0 14Z',
+  expand: 'M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5',
 };
 export type IconName = keyof typeof paths;
 export function icon(name: IconName): SVGSVGElement {

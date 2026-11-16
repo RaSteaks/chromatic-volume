@@ -1,3 +1,12 @@
+import {
+  canvasSettings,
+  clipToDisplay,
+  cssColor,
+  displayGamut,
+  inDisplay,
+  linearFromDisplay,
+  linearToDisplay,
+} from '../display';
 import Color from 'colorjs.io';
 import { button, el, icon, slider } from '../dom';
 import type { Vec3 } from '../model';
@@ -29,7 +38,8 @@ export function createCanvas(
 ) {
   const canvas = el('canvas', { role: 'img', 'aria-label': label });
   host.append(canvas);
-  const ctx = canvas.getContext('2d')!;
+  const ctx = canvas.getContext('2d', canvasSettings)!;
+  canvas.dataset.display = displayGamut;
   let width = 0,
     height = 0,
     frame = 0;
@@ -348,33 +358,39 @@ export function readoutTable(head: string[], rows: (string | Node)[][]) {
   );
 }
 
-/** D65 XYZ → displayable sRGB (0–1, clipped) and whether clipping happened. */
+/**
+ * D65 XYZ → the colour as shown: encoded sRGB clipped to the display gamut
+ * (so it may exceed 0–1 on a Display P3 canvas), and whether clipping happened.
+ */
 export function displayRgb(xyz: Vec3): { rgb: Vec3; clipped: boolean } {
   const rgb = new Color('xyz-d65', xyz)
     .to('srgb')
     .coords.map((v) => v ?? 0) as Vec3;
-  const clipped = rgb.some((v) => v < -1e-6 || v > 1 + 1e-6);
-  return {
-    rgb: rgb.map((v) => Math.min(Math.max(v, 0), 1)) as Vec3,
-    clipped,
-  };
+  return { rgb: clipToDisplay(rgb), clipped: !inDisplay(rgb) };
 }
-export const css = (rgb: Vec3) =>
-  `rgb(${rgb.map((v) => Math.round(Math.min(Math.max(v, 0), 1) * 255)).join(',')})`;
-/** Linear-light XYZ at full brightness: scale so the largest linear sRGB channel is 1. */
+/** CSS colour for encoded sRGB, clipped to the display gamut. */
+export const css = (rgb: Vec3) => cssColor(rgb);
+/**
+ * Linear-light XYZ at full brightness: negative display channels are clipped
+ * and the largest linear display channel is scaled to 1. Returns encoded sRGB.
+ */
 export function chromaticityColor(xyz: Vec3): Vec3 {
-  const linear = new Color('xyz-d65', xyz)
-    .to('srgb-linear')
-    .coords.map((v) => Math.max(v ?? 0, 0));
+  const linear = linearToDisplay(
+    new Color('xyz-d65', xyz).to('srgb-linear').coords.map((v) => v ?? 0),
+  ).map((v) => Math.max(v, 0));
   const peak = Math.max(...linear) || 1;
-  return new Color('srgb-linear', linear.map((v) => v / peak) as Vec3)
+  return new Color(
+    'srgb-linear',
+    linearFromDisplay(linear.map((v) => v / peak)) as Vec3,
+  )
     .to('srgb')
     .coords.map((v) => v ?? 0) as Vec3;
 }
 
 /**
- * A slider with a play button. Playback loops or bounces, pauses while the
- * page is hidden, and starts paused when reduced motion is requested.
+ * A slider with a play button. Playback always starts paused, so a figure
+ * opens on a stable, readable state; it loops or bounces and pauses while the
+ * page is hidden.
  */
 export function playback(options: {
   id: string;
@@ -386,7 +402,6 @@ export function playback(options: {
   /** Units per second. */
   speed: number;
   bounce?: boolean;
-  autoplay?: boolean;
   format?: (v: number) => string;
   onChange: (value: number) => void;
 }) {
@@ -451,8 +466,6 @@ export function playback(options: {
     render();
   }
   render();
-  const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
-  if (options.autoplay !== false && !reduced) play();
   return {
     element: el('div', { class: 'playback' }, toggle, control.element),
     set(v: number) {

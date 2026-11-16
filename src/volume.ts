@@ -1,3 +1,10 @@
+import {
+  canvasSettings,
+  channelsCss,
+  cssColor,
+  displayChannels,
+  displayGamut,
+} from './display';
 import { clamp, type LabState, type Vec3 } from './model';
 
 export interface VolumeData {
@@ -50,7 +57,8 @@ export class VolumeView {
     onViewChange: () => void,
     onPick: (index: number) => void,
   ) {
-    const context = canvas.getContext('2d');
+    const context = canvas.getContext('2d', canvasSettings);
+    canvas.dataset.display = displayGamut;
     if (!context)
       throw new Error(
         '浏览器无法创建 Canvas 2D 画布，请使用支持 Canvas 的浏览器。',
@@ -307,10 +315,11 @@ export class VolumeView {
     if (this.sprites.size > 6000) this.sprites.clear();
     for (const p of this.points) {
       const rgb = data.colors[p.index];
-      const channels = rgb.map((channel) => Math.round(clamp(channel) * 255));
+      // 8-bit channels in the display space: the drawn colour and the sprite key.
+      const channels = displayChannels(rgb);
       const key = channels.join(',');
       if (this.state.flatColors) {
-        ctx.fillStyle = `rgb(${key})`;
+        ctx.fillStyle = channelsCss(channels);
         ctx.beginPath();
         ctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
         ctx.fill();
@@ -322,16 +331,16 @@ export class VolumeView {
         sprite = document.createElement('canvas');
         sprite.width = 32;
         sprite.height = 32;
-        const sphere = sprite.getContext('2d')!;
+        const sphere = sprite.getContext('2d', canvasSettings)!;
         const gradient = sphere.createRadialGradient(11, 9, 1, 16, 16, 15);
         gradient.addColorStop(
           0,
-          `rgb(${channels.map((v) => Math.round(v + (255 - v) * 0.27)).join(',')})`,
+          channelsCss(channels.map((v) => Math.round(v + (255 - v) * 0.27))),
         );
-        gradient.addColorStop(0.4, `rgb(${key})`);
+        gradient.addColorStop(0.4, channelsCss(channels));
         gradient.addColorStop(
           1,
-          `rgb(${channels.map((v) => Math.round(v * 0.38 + 3)).join(',')})`,
+          channelsCss(channels.map((v) => Math.round(v * 0.38 + 3))),
         );
         sphere.fillStyle = gradient;
         sphere.beginPath();
@@ -412,7 +421,7 @@ export class VolumeView {
         projected.forEach((p, i) => {
           const rgb = line.dots![i];
           if (!rgb) return;
-          ctx.fillStyle = `rgb(${rgb.map((v) => Math.round(clamp(v) * 255)).join(',')})`;
+          ctx.fillStyle = cssColor(rgb);
           ctx.beginPath();
           ctx.arc(p.x, p.y, 3.2, 0, Math.PI * 2);
           ctx.fill();

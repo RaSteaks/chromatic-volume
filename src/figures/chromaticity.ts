@@ -1,3 +1,4 @@
+import { canvasSettings, displayName, linearToDisplay } from '../display';
 import Color from 'colorjs.io';
 import gamutData from '../data/gamuts.json' with { type: 'json' };
 import { el, toggle } from '../dom';
@@ -74,8 +75,9 @@ function horseshoeFill(
     image = document.createElement('canvas');
     image.width = w;
     image.height = h;
-    const ctx = image.getContext('2d')!;
-    const data = ctx.createImageData(w, h);
+    // Filled in the display space, so a Display P3 canvas shows chromaticities beyond sRGB.
+    const ctx = image.getContext('2d', canvasSettings)!;
+    const data = ctx.createImageData(w, h, canvasSettings);
     for (let py = 0; py < h; py++)
       for (let px = 0; px < w; px++) {
         const p: XY = [
@@ -85,9 +87,11 @@ function horseshoeFill(
         if (!inside(polygon, p)) continue;
         const [x, y] = toXy(p);
         const XYZ = [x / y, 1, (1 - x - y) / y];
-        const linear = XYZ_TO_LINEAR.map((row) =>
-          Math.max(row[0] * XYZ[0] + row[1] * XYZ[1] + row[2] * XYZ[2], 0),
-        );
+        const linear = linearToDisplay(
+          XYZ_TO_LINEAR.map(
+            (row) => row[0] * XYZ[0] + row[1] * XYZ[1] + row[2] * XYZ[2],
+          ),
+        ).map((v) => Math.max(v, 0));
         const peak = Math.max(...linear) || 1;
         const o = (py * w + px) * 4;
         linear.forEach((v, c) => {
@@ -396,7 +400,6 @@ function horseshoe({ host, controls, readout }: FigureContext) {
     step: 0.001,
     value: 0,
     speed: 0.4,
-    autoplay: false,
     format: (v) => gamuts[Math.floor(v)].name,
     onChange: (v) => {
       const next = Math.floor(v);
@@ -758,7 +761,7 @@ function hueLines({ host, controls, readout }: FigureContext) {
 const figures: FigureDef[] = [
   {
     id: 'cie1931',
-    number: 22,
+    number: 23,
     title: 'CIE 色度图',
     conditions: 'CIE 1931 2° · u′v′ / xy · 原生白点，无适配',
     grade: 'reference',
@@ -768,15 +771,14 @@ const figures: FigureDef[] = [
       data: 'CIE 1931 2° 与 CIE 1964 10° 标准观察者（Colour Science 0.4.4）；色域基色取自各空间的 RGB→XYZ 矩阵',
       domain:
         '光谱轨迹 380–780 nm / 5 nm；CCT 与 Duv 在 CIE 1960 uv 中求普朗克轨迹最近点（与 Ohno 2013 同定义，直接求解）',
-      approximation:
-        '底色以 sRGB 可显示的最大亮度绘制，sRGB 外裁剪，仅示意；10° 轨迹只作叠加对照，基色与 CCT 均按 2° 计算',
+      approximation: `底色以 ${displayName} 可显示的最大亮度绘制，${displayName} 外裁剪，仅示意；10° 轨迹只作叠加对照，基色与 CCT 均按 2° 计算`,
       reference: 'CIE 15:2018；Ohno, LEUKOS 10(1), 2014',
     },
     mount: horseshoe,
   },
   {
     id: 'macadam',
-    number: 23,
+    number: 24,
     title: 'MacAdam 椭圆',
     conditions: 'MacAdam 1942 · 观察者 PGN · 25 个椭圆 ×10 · xy ↔ u′v′',
     grade: 'reference',
@@ -792,7 +794,7 @@ const figures: FigureDef[] = [
   },
   {
     id: 'hue-lines',
-    number: 24,
+    number: 25,
     title: '等色相线：CIELAB 与 Oklab',
     conditions: 'CIELAB (D65) vs Oklab · 等 L、等 h · C 从 0 到 sRGB 原色',
     grade: 'reference',

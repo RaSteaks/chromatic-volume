@@ -487,7 +487,7 @@ function bayer({ host, controls, readout }: FigureContext) {
 const figures: FigureDef[] = [
   {
     id: 'subsampling',
-    number: 35,
+    number: 36,
     title: '色度抽样',
     conditions: 'BT.709 Y′CbCr（非恒定亮度）· 块平均 · 最近邻重建',
     grade: 'illustrative',
@@ -506,7 +506,7 @@ const figures: FigureDef[] = [
   },
   {
     id: 'bit-depth',
-    number: 36,
+    number: 37,
     title: '位深与色带',
     conditions: '均匀量化 · 8 / 10-bit · Full / Legal range',
     grade: 'illustrative',
@@ -523,7 +523,7 @@ const figures: FigureDef[] = [
   },
   {
     id: 'bayer',
-    number: 37,
+    number: 38,
     title: 'Bayer 阵列与去马赛克',
     conditions: 'RGGB · 线性光采样 · 双线性插值 · PSNR 在 sRGB 编码域',
     grade: 'illustrative',

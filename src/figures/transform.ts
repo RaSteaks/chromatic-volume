@@ -61,7 +61,8 @@ function latticeFigure(spec: LatticeSpec) {
     });
     host.append(canvas);
     const interpolate = createLattice(spec.keyframes, nodes);
-    let t = 0;
+    // Open on the completed transform; intermediate frames are only a transition.
+    let t = spec.keyframes.length - 1;
     const view = new VolumeView(
       canvas,
       camera,
@@ -114,7 +115,7 @@ function latticeFigure(spec: LatticeSpec) {
       min: 0,
       max: spec.keyframes.length - 1,
       step: 0.01,
-      value: 0,
+      value: t,
       speed: 0.35,
       bounce: true,
       format: (v) =>
@@ -335,7 +336,7 @@ export const transformLattices = {
 const figures: FigureDef[] = [
   {
     id: 'aces',
-    number: 16,
+    number: 17,
     title: 'ACES 1.x 色调映射（Hill 拟合）',
     conditions:
       '每通道 0.18·2^[−6.5, +6.5] · AP1 近似矩阵 + 有理函数 · 输出 sRGB 编码',
@@ -354,7 +355,7 @@ const figures: FigureDef[] = [
   },
   {
     id: 'agx',
-    number: 17,
+    number: 18,
     title: 'AgX',
     conditions:
       'inset → log₂ [−12.47, +4.03] EV → 6 次多项式 → outset · sRGB 编码',
@@ -373,7 +374,7 @@ const figures: FigureDef[] = [
   },
   {
     id: 'protan',
-    number: 18,
+    number: 19,
     title: 'Protanopia',
     conditions:
       'Machado 2009 · 严重度 1.0 · 线性 sRGB 坐标与均匀采样 · 点色经 sRGB 编码',
@@ -390,7 +391,7 @@ const figures: FigureDef[] = [
   },
   {
     id: 'deutan',
-    number: 19,
+    number: 20,
     title: 'Deuteranopia',
     conditions:
       'Machado 2009 · 严重度 1.0 · 线性 sRGB 坐标与均匀采样 · 点色经 sRGB 编码',
@@ -407,7 +408,7 @@ const figures: FigureDef[] = [
   },
   {
     id: 'tritan',
-    number: 20,
+    number: 21,
     title: 'Tritanopia',
     conditions:
       'Machado 2009 · 严重度 1.0 · 线性 sRGB 坐标与均匀采样 · 点色经 sRGB 编码',
@@ -425,7 +426,7 @@ const figures: FigureDef[] = [
   },
   {
     id: 'rgc',
-    number: 21,
+    number: 22,
     title: 'ACES Reference Gamut Compression',
     conditions:
       'S-Gamut3 → AP1 · 阈值 0.815 / 0.803 / 0.880 · 极限 1.147 / 1.264 / 1.312 · 幂 1.2',

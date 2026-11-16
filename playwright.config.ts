@@ -14,6 +14,17 @@ export default defineConfig({
   ],
   use: {
     baseURL,
+    // Headless WebKit reports the host screen's gamut; pin the canvases to sRGB
+    // so results do not depend on the machine. Display P3 has its own test.
+    storageState: {
+      cookies: [],
+      origins: [
+        {
+          origin: baseURL,
+          localStorage: [{ name: 'display-gamut', value: 'srgb' }],
+        },
+      ],
+    },
     browserName: 'webkit',
     headless: true,
     viewport: { width: 1440, height: 1000 },

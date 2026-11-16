@@ -1,3 +1,5 @@
+import { fromDisplay } from '../../src/display';
+import type { Vec3 } from '../../src/model';
 import { expect, test, type Page } from '@playwright/test';
 import { volumeFigures } from '../../src/volume-figures';
 import { frame } from '../../src/figures/plot';
@@ -35,7 +37,7 @@ test('tabs link every figure category from the volume workbench', async ({
   );
   await page.getByRole('link', { name: '色度图' }).click();
   await expect(page).toHaveURL(/view=chromaticity/);
-  await expect(page.locator('.figure-heading h1')).toHaveText('22. CIE 色度图');
+  await expect(page.locator('.figure-heading h1')).toHaveText('23. CIE 色度图');
   await page.getByRole('link', { name: '色体积' }).click();
   await expect(page.locator('canvas').first()).toHaveAttribute(
     'data-points',
@@ -76,7 +78,7 @@ test('old links to a moved figure open it on its new tab', async ({ page }) => {
   await page.goto('/?view=pixels&fig=mixing');
   await expect(page).toHaveURL(/view=spectrum/);
   await expect(page.locator('.figure-heading h1')).toHaveText(
-    '31. 加色混合与减色混合',
+    '32. 加色混合与减色混合',
   );
 });
 
@@ -204,14 +206,16 @@ test('figure links restore the selected figure and play controls animate', async
 }) => {
   await page.goto('/?view=transform&fig=rgc');
   await expect(page.locator('.figure-heading h1')).toHaveText(
-    '21. ACES Reference Gamut Compression',
+    '22. ACES Reference Gamut Compression',
   );
   const canvas = page.locator('.figure-host canvas');
+  // Figures open paused on the completed transform.
+  await expect(canvas).toHaveAttribute('data-progress', '2.000');
+  await page.getByRole('button', { name: '播放' }).click();
+  await expect(canvas).not.toHaveAttribute('data-progress', '2.000');
   await page.getByRole('button', { name: '暂停' }).click();
-  const before = await canvas.getAttribute('data-progress');
   await page.locator('#morph').fill('2');
   await expect(canvas).toHaveAttribute('data-progress', '2.000');
-  expect(before).not.toBe('2.000');
   await expect(page.locator('.figure-stage-label')).toContainText('（RGC）后');
   // The lattice is a draggable 3D view.
   const camera = await canvas.getAttribute('data-camera');
@@ -304,6 +308,8 @@ test('RGB morph labels and AP1 counts describe the current frame', async ({
   await page.goto('/?view=transform&fig=rgc');
   const status = page.locator('.figure-stage-label');
   const canvas = page.locator('.figure-host canvas');
+  // The figure opens on the completed transform; rewind to the source frame.
+  await page.locator('#morph').fill('0');
   await expect(status).not.toContainText('个节点在 AP1 之外');
   await page.locator('#morph').fill('0.6');
   await expect(status).toHaveText(/^过渡示意：/);
@@ -511,7 +517,7 @@ for (const width of [390, 768]) {
       await page.locator('.figure-mobile').selectOption('hd');
     }
     await expect(page.locator('.figure-heading h1')).toHaveText(
-      '34. 胶片特性曲线（H&D）',
+      '35. 胶片特性曲线（H&D）',
     );
   });
 }
@@ -606,4 +612,95 @@ test('a stalled figure module cannot replace the failure screen', async ({
   await page.waitForTimeout(3000);
   await expect(page.getByRole('alert')).toBeVisible();
   await expect(page.locator('.figure-page')).toHaveCount(0);
+});
+
+test('search, stepping and focus mode work across tabs', async ({ page }) => {
+  await page.goto('/?view=spectrum');
+  // Search covers every tab and opens the chosen figure.
+  await page.getByRole('button', { name: '搜索图例' }).click();
+  await expect(page.locator('.figure-result')).toHaveCount(38);
+  await page.getByRole('combobox', { name: '搜索全部图例' }).fill('h&d');
+  await expect(page.locator('.figure-result')).toHaveCount(1);
+  await page.keyboard.press('Enter');
+  await expect(page.locator('.figure-heading h1')).toHaveText(
+    '35. 胶片特性曲线（H&D）',
+  );
+  // ] continues into the next tab, [ returns to the last figure of the previous one.
+  await page.keyboard.press(']');
+  await expect(page).toHaveURL(/view=pixels/);
+  await expect(page.locator('.figure-heading h1')).toHaveText('36. 色度抽样');
+  await page.keyboard.press('[');
+  await expect(page.locator('.figure-heading h1')).toHaveText(
+    '35. 胶片特性曲线（H&D）',
+  );
+  await page.getByRole('button', { name: '上一张（[）' }).click();
+  await expect(page).toHaveURL(/fig=tonemap/);
+  await page.goBack();
+  await expect(page).toHaveURL(/fig=hd/);
+  // Focus mode hides both side panels and survives a tab change.
+  await page.keyboard.press('f');
+  await expect(page.locator('.target-sidebar')).toBeHidden();
+  await expect(page.locator('.figure-inspector')).toBeHidden();
+  await page.goto('/?fig=ycbcr');
+  await expect(page.locator('.inspector')).toBeHidden();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('[data-figure="ycbcr"]')).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+  await expect(page.locator('canvas').last()).toHaveAttribute(
+    'data-model',
+    'ycbcr709',
+  );
+});
+
+test('Display P3 canvases draw beyond sRGB and say so', async ({ page }) => {
+  await page.goto('/?view=chromaticity&display=p3');
+  const canvas = page.locator('.figure-host canvas');
+  // Browsers without Display P3 canvases keep the sRGB path, which every other test covers.
+  test.skip(
+    (await canvas.getAttribute('data-display')) !== 'p3',
+    'this browser cannot draw Display P3 canvases',
+  );
+  await expect(canvas).toHaveAttribute('data-painted', /\d+/);
+  await expect(page.locator('.figure-provenance')).toContainText(
+    'Display P3 外裁剪',
+  );
+  // Read the drawing back in Display P3 and convert it to sRGB here: part of
+  // the fill must land well outside sRGB (a negative channel).
+  const drawn = await canvas.evaluate((element: HTMLCanvasElement) => {
+    const ctx = element.getContext('2d')!;
+    const { data } = ctx.getImageData(0, 0, element.width, element.height, {
+      colorSpace: 'display-p3',
+    });
+    const pixels: number[][] = [];
+    for (let y = 0; y < element.height; y += 12)
+      for (let x = 0; x < element.width; x += 12) {
+        const o = (y * element.width + x) * 4;
+        pixels.push([data[o], data[o + 1], data[o + 2]]);
+      }
+    return { space: ctx.getContextAttributes().colorSpace, pixels };
+  });
+  expect(drawn.space).toBe('display-p3');
+  const lowest = Math.min(
+    ...drawn.pixels.flatMap((pixel) =>
+      fromDisplay(pixel.map((v) => v / 255) as Vec3, 'p3'),
+    ),
+  );
+  expect(lowest).toBeLessThan(-0.2);
+
+  await page.goto('/?fig=sgamut3&display=p3');
+  await expect(page.locator('canvas').first()).toHaveAttribute(
+    'data-display',
+    'p3',
+  );
+  await expect(page.locator('.lab-status')).toContainText(
+    '个目标点超出 Display P3 显示范围',
+  );
+  // The pinned sRGB choice still applies without the override.
+  await page.goto('/?view=chromaticity');
+  await expect(canvas).toHaveAttribute('data-display', 'srgb');
+  await expect(
+    page.getByRole('button', { name: /画布显示域：sRGB/ }),
+  ).toBeVisible();
 });

@@ -1,5 +1,12 @@
-import { el, icon } from '../dom';
-import { viewTabs, views, type FigureViewId } from '../shell';
+import { button, el, icon } from '../dom';
+import {
+  linkReferences,
+  neighbourHref,
+  onFigureStep,
+  viewTabs,
+  views,
+  type FigureViewId,
+} from '../shell';
 
 export interface FigureContext {
   /** Drawing area; figures append their own canvas(es). */
@@ -44,7 +51,7 @@ const provenanceLabels: [keyof Provenance, string][] = [
 ];
 export interface FigureDef {
   id: string;
-  /** Running number in the figure catalogue (1–37). */
+  /** Running number in the figure catalogue (1–38; 1–16 are the volume figures). */
   number: number;
   title: string;
   /** One specification line: observer, illuminant, domain, sampling. */
@@ -74,8 +81,15 @@ export function mountFigures(view: FigureViewId, groups: FigureGroup[]) {
   const root = document.querySelector<HTMLDivElement>('#app')!;
   const figures = groups.flatMap((group) => group.figures);
   const params = new URLSearchParams(location.search);
+  // `fig=last` is how the previous-figure step arrives from the next tab.
   let current =
-    figures.find((figure) => figure.id === params.get('fig')) ?? figures[0];
+    (params.get('fig') === 'last' ? figures.at(-1) : null) ??
+    figures.find((figure) => figure.id === params.get('fig')) ??
+    figures[0];
+  if (params.get('fig') === 'last') {
+    params.set('fig', current.id);
+    history.replaceState(null, '', `${location.pathname}?${params}`);
+  }
   let unmount: (() => void) | null = null;
 
   const list = el('div', {
@@ -144,9 +158,34 @@ export function mountFigures(view: FigureViewId, groups: FigureGroup[]) {
     const url = new URL(location.href);
     url.searchParams.set('view', view);
     url.searchParams.set('fig', figure.id);
-    history.replaceState(null, '', url);
+    // Each figure is a history entry, so Back returns to the previous one.
+    if (url.href !== location.href) history.pushState(null, '', url);
     render();
   }
+  /** Previous / next figure in catalogue order, continuing into the neighbouring tab. */
+  function step(direction: -1 | 1) {
+    const next = figures[figures.indexOf(current) + direction];
+    if (next) select(next);
+    else {
+      const href = neighbourHref(view, direction);
+      if (href) location.assign(href);
+    }
+  }
+  onFigureStep(step);
+  const stepper = el(
+    'div',
+    { class: 'figure-stepper' },
+    button('上一张（[）', () => step(-1), {
+      icon: 'back',
+      iconOnly: true,
+      class: 'icon-button',
+    }),
+    button('下一张（]）', () => step(1), {
+      icon: 'chevron',
+      iconOnly: true,
+      class: 'icon-button',
+    }),
+  );
   function render() {
     unmount?.();
     host.replaceChildren();
@@ -156,6 +195,7 @@ export function mountFigures(view: FigureViewId, groups: FigureGroup[]) {
     titleGrade.replaceChildren(gradeTag(current.grade));
     conditions.textContent = current.conditions;
     highlight.textContent = current.highlight;
+    linkReferences(highlight);
     provenance.replaceChildren(
       ...provenanceLabels.flatMap(([key, name]) =>
         current.provenance[key]
@@ -207,7 +247,7 @@ export function mountFigures(view: FigureViewId, groups: FigureGroup[]) {
                 el('div', { class: 'figure-title-row' }, title, titleGrade),
                 conditions,
               ),
-              mobile,
+              el('div', { class: 'figure-heading-tools' }, mobile, stepper),
             ),
             host,
             controls,
@@ -229,5 +269,13 @@ export function mountFigures(view: FigureViewId, groups: FigureGroup[]) {
     ),
   );
   render();
+  window.addEventListener('popstate', () => {
+    const id = new URLSearchParams(location.search).get('fig');
+    const figure = figures.find((item) => item.id === id) ?? figures[0];
+    if (figure !== current) {
+      current = figure;
+      render();
+    }
+  });
   window.addEventListener('pagehide', () => unmount?.());
 }

@@ -1,3 +1,4 @@
+import { displayName } from '../display';
 import Color from 'colorjs.io';
 import tm30 from '../data/tm30.json' with { type: 'json' };
 import { el, toggle } from '../dom';
@@ -233,7 +234,11 @@ function cmfFigure(kind: 'xyz' | 'rgb') {
         ...(showTen && kind === 'xyz'
           ? [el('span', {}, `10°：x ${x10.toFixed(4)}  y ${y10.toFixed(4)}`)]
           : []),
-        swatch('色样', chromaticityColor(xyz), '归一亮度，sRGB 外已裁剪'),
+        swatch(
+          '色样',
+          chromaticityColor(xyz),
+          `归一亮度，${displayName} 外已裁剪`,
+        ),
       );
       plot.redraw();
     };
@@ -799,7 +804,7 @@ function cameraFigure({ host, controls, readout }: FigureContext) {
 const figures: FigureDef[] = [
   {
     id: 'cmf',
-    number: 25,
+    number: 26,
     title: 'CIE 配色函数',
     conditions: 'CIE 1931 2° · 可叠加 CIE 1964 10° · 380–780 nm / 5 nm',
     grade: 'reference',
@@ -808,14 +813,14 @@ const figures: FigureDef[] = [
     provenance: {
       data: 'CIE 1931 2° 与 CIE 1964 10° 标准观察者（Colour Science 0.4.4）',
       domain: '线性插值读取 5 nm 网格之间的波长',
-      approximation: '单色光都在 sRGB 外，色样按最大通道归一后裁剪',
+      approximation: `单色光都在 ${displayName} 外，色样按最大通道归一后裁剪`,
       reference: 'CIE 015:2018',
     },
     mount: cmfFigure('xyz'),
   },
   {
     id: 'rgb-cmf',
-    number: 26,
+    number: 27,
     title: 'RGB 配色函数',
     conditions: 'Wright & Guild 1931 · 2° · 原色 700 / 546.1 / 435.8 nm',
     grade: 'reference',
@@ -830,7 +835,7 @@ const figures: FigureDef[] = [
   },
   {
     id: 'blackbody',
-    number: 27,
+    number: 28,
     title: '黑体辐射',
     conditions: 'Planck · c₂ = 1.4388×10⁻² m·K · 560 nm 归一 · 2000–10000 K',
     grade: 'reference',
@@ -846,7 +851,7 @@ const figures: FigureDef[] = [
   },
   {
     id: 'metamerism',
-    number: 28,
+    number: 29,
     title: '同色异谱',
     conditions: 'D65 ↔ A · Bradford 适配到 D65 · ΔE2000',
     grade: 'illustrative',
@@ -861,7 +866,7 @@ const figures: FigureDef[] = [
   },
   {
     id: 'tm30',
-    number: 29,
+    number: 30,
     title: 'TM-30 色矢量图',
     conditions: 'ANSI/IES TM-30-18 · 99 CES · CAM02-UCS · 16 色相区间',
     grade: 'reference',
@@ -878,7 +883,7 @@ const figures: FigureDef[] = [
   },
   {
     id: 'luther',
-    number: 30,
+    number: 31,
     title: '相机灵敏度与 Luther 条件',
     conditions: 'NPL 实测灵敏度 · 对 x̄ȳz̄ 的最小二乘 3×3 拟合',
     grade: 'reference',
@@ -895,7 +900,7 @@ const figures: FigureDef[] = [
   },
   {
     id: 'mixing',
-    number: 31,
+    number: 32,
     title: '加色混合与减色混合',
     conditions: '高斯光谱 · 单常数 Kubelka–Munk · D65 · CIE 1931 2°',
     grade: 'illustrative',

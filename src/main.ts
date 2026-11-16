@@ -1,3 +1,10 @@
+import {
+  canvasSettings,
+  cssColor,
+  displayGamut,
+  displayName,
+  inDisplay,
+} from './display';
 import { cameraPresets } from './camera-transfers';
 import {
   encodingReady,
@@ -39,7 +46,7 @@ import {
   type Overlay,
 } from './overlays';
 import { volumeFigures, type VolumeFigure } from './volume-figures';
-import { viewTabs } from './shell';
+import { linkReferences, neighbourHref, onFigureStep, viewTabs } from './shell';
 
 const root = document.querySelector<HTMLDivElement>('#app')!;
 const search = new URLSearchParams(location.search);
@@ -115,9 +122,13 @@ const interactionHint = el(
   'div',
   { class: 'interaction-hint' },
   icon('rotate'),
-  el('span', {}, '拖动旋转 · 聚焦后滚轮缩放 · 方向键旋转'),
-  el('span', { class: 'sync-label' }, icon('link'), '视角同步'),
+  el('span', {}, '拖动旋转 · 聚焦后滚轮缩放 · 方向键旋转 · 两侧视角同步'),
 );
+// Display and overlay switches fold away when the viewport is short, so the
+// canvases keep their height; the page scrolls on narrow layouts, so they stay open there.
+const viewOptions = el('details', { class: 'view-options' });
+viewOptions.open = !matchMedia('(min-width: 1201px) and (max-height: 859px)')
+  .matches;
 const figureList = el('div', {
   class: 'figure-list',
   role: 'group',
@@ -460,7 +471,7 @@ function updateLabels() {
     ? '处理强度'
     : '映射进度';
   modelStatus.textContent = target
-    ? `${outputColors.filter((point) => point.some((v) => v < -1e-7 || v > 1 + 1e-7)).length} 个目标点超出 sRGB 显示范围 · ${conversionLoss.filter(Boolean).length} 点在目标转换中损失颜色`
+    ? `${outputColors.filter((point) => !inDisplay(point, displayGamut, 1e-7)).length} 个目标点超出 ${displayName} 显示范围 · ${conversionLoss.filter(Boolean).length} 点在目标转换中损失颜色`
     : state.target === 'lut'
       ? lut
         ? lutReady()
@@ -498,7 +509,7 @@ function updateSample() {
   const labels = target?.channels ?? ['R', 'G', 'B'];
   const swatch = el('span', {
     class: 'swatch',
-    style: `background:rgb(${sourceColors[selectedPoint].map((v) => Math.round(clamp(v) * 255)).join(',')})`,
+    style: `background:${cssColor(sourceColors[selectedPoint])}`,
   });
   sampleReadout.replaceChildren(
     swatch,
@@ -554,18 +565,16 @@ function updateSample() {
           el('span', {}, label),
           el('div', {
             class: 'flat-swatch',
-            style: rgb
-              ? `background:rgb(${rgb.map((v) => Math.round(clamp(v) * 255)).join(',')})`
-              : '',
+            style: rgb ? `background:${cssColor(rgb)}` : '',
           }),
           el(
             'small',
             {},
             !rgb
               ? '待配置'
-              : rgb.some((v) => v < -1e-7 || v > 1 + 1e-7)
-                ? '超出 sRGB 显示范围 · 已裁剪'
-                : 'sRGB 显示范围内',
+              : inDisplay(rgb, displayGamut, 1e-7)
+                ? `${displayName} 显示范围内`
+                : `超出 ${displayName} 显示范围 · 已裁剪`,
           ),
         ),
       ),
@@ -647,7 +656,11 @@ function renderFigures() {
           'data-figure': figure.id,
           'aria-pressed': String(activeFigure?.id === figure.id),
         },
-        el('strong', {}, figure.title),
+        el(
+          'strong',
+          {},
+          `${volumeFigures.indexOf(figure) + 1}. ${figure.title}`,
+        ),
         el('span', {}, figure.caption),
       );
       control.addEventListener('click', () => applyFigure(figure));
@@ -655,6 +668,13 @@ function renderFigures() {
     }),
   );
   mobileFigure.value = activeFigure?.id ?? '';
+  // The address names the curated figure; it is dropped once the settings diverge.
+  const url = new URL(location.href);
+  if (activeFigure) url.searchParams.delete('state');
+  if (activeFigure && activeFigure !== volumeFigures[0])
+    url.searchParams.set('fig', activeFigure.id);
+  else url.searchParams.delete('fig');
+  if (url.href !== location.href) history.replaceState(null, '', url);
 }
 function renderLegend() {
   const items: [string, string][] = [];
@@ -671,7 +691,6 @@ function renderLegend() {
   if (state.gradient)
     gradientModes.forEach((mode) => items.push([mode.color, mode.name]));
   legend.hidden = !items.length;
-  interactionHint.hidden = items.length > 0;
   legend.replaceChildren(
     ...items.map(([color, label]) =>
       el('span', {}, el('i', { style: `background:${color}` }), label),
@@ -936,14 +955,22 @@ function renderInspector() {
     content,
   );
   if (target) {
+    const highlightText = el(
+      'p',
+      { class: 'figure-highlight' },
+      activeFigure?.highlight ?? target.highlight ?? target.description,
+    );
+    linkReferences(highlightText);
     content.append(
       el('div', { class: 'stage-category' }, icon('cube'), '看点'),
-      el('h3', {}, activeFigure?.title ?? target.name),
       el(
-        'p',
-        { class: 'figure-highlight' },
-        activeFigure?.highlight ?? target.highlight ?? target.description,
+        'h3',
+        {},
+        activeFigure
+          ? `${volumeFigures.indexOf(activeFigure) + 1}. ${activeFigure.title}`
+          : target.name,
       ),
+      highlightText,
       sampleInspector(),
       el(
         'details',
@@ -955,7 +982,7 @@ function renderInspector() {
           { class: 'stage-description' },
           state.source === 'srgb'
             ? target.description
-            : `将 ${getTarget(state.source)!.name} 色域采样转换为 ${target.name} 的 ${target.channels.join('、')} 坐标。目标解码后的实际颜色统一转为 sRGB 显示；无法还原输入色的样本会标记。`,
+            : `将 ${getTarget(state.source)!.name} 色域采样转换为 ${target.name} 的 ${target.channels.join('、')} 坐标。目标解码后的实际颜色统一转为 ${displayName} 显示；无法还原输入色的样本会标记。`,
         ),
         el(
           'div',
@@ -1164,12 +1191,15 @@ function renderInspector() {
 }
 function renderDisplayControls() {
   displayControls.replaceChildren(
-    isLook()
-      ? toggle('preserve', '保留输入色', state.preserve, (value) => {
-          state.preserve = value;
-          draw();
-        })
-      : el('span', { class: 'color-preserved' }, icon('check'), '目标实际颜色'),
+    el('span', { class: 'overlay-title' }, '显示'),
+    ...(isLook()
+      ? [
+          toggle('preserve', '保留输入色', state.preserve, (value) => {
+            state.preserve = value;
+            draw();
+          }),
+        ]
+      : []),
     toggle('equal-axes', '严格等比例', state.equalAxes, (value) => {
       state.equalAxes = value;
       updateModel();
@@ -1255,7 +1285,7 @@ const reset = button(
 );
 const mobileTarget = el(
   'select',
-  { 'aria-label': '目标模型', class: 'mobile-target' },
+  { id: 'mobile-target', 'aria-label': '目标模型', class: 'mobile-target' },
   ...colorTargets.map((target) =>
     el('option', { value: target.id }, target.name),
   ),
@@ -1299,10 +1329,14 @@ compareSelect.addEventListener('change', () => {
 });
 const mobileFigure = el(
   'select',
-  { 'aria-label': '色体积图例', class: 'mobile-figure' },
+  { id: 'mobile-figure', 'aria-label': '色体积图例', class: 'mobile-figure' },
   el('option', { value: '' }, '选择图例…'),
   ...volumeFigures.map((figure) =>
-    el('option', { value: figure.id }, figure.title),
+    el(
+      'option',
+      { value: figure.id },
+      `${volumeFigures.indexOf(figure) + 1}. ${figure.title}`,
+    ),
   ),
 );
 mobileFigure.addEventListener('change', () => {
@@ -1337,9 +1371,11 @@ const toolbar = el(
   el(
     'div',
     { class: 'toolbar-selects' },
+    el('label', { for: 'mobile-figure', class: 'mobile-label' }, '图例'),
     mobileFigure,
     el('label', { for: 'source' }, '源'),
     sourceSelect,
+    el('label', { for: 'mobile-target', class: 'mobile-label' }, '目标'),
     mobileTarget,
     el('label', { for: 'compare' }, '对照'),
     compareSelect,
@@ -1381,6 +1417,7 @@ const cameraControls = el(
   ),
   rotationButton,
   zoom.element,
+  interactionHint,
   button(
     '重置视角',
     () => {
@@ -1409,11 +1446,11 @@ const lab = el(
       ),
       el(
         'div',
-        { class: 'sidebar-scroll' },
+        { class: 'sidebar-scroll sidebar-split' },
         figureList,
         el(
-          'div',
-          { class: 'all-models' },
+          'section',
+          { class: 'all-models', 'aria-label': '全部模型' },
           el(
             'div',
             { class: 'models-heading' },
@@ -1467,16 +1504,15 @@ const lab = el(
           el('div', { class: 'canvas-caption' }, rightCaption),
         ),
       ),
-      el('div', { class: 'interaction-row' }, interactionHint, legend),
-      cameraControls,
-      displayControls,
-      overlayControls,
+      legend,
       el(
         'div',
         { class: 'mix-control' },
         el('div', {}, mixingTitle, mixingDescription),
         strength.element,
       ),
+      cameraControls,
+      viewOptions,
       sampleReadout,
     ),
     inspector,
@@ -1496,7 +1532,7 @@ function exportImage() {
   const canvas = document.createElement('canvas');
   canvas.width = 1600;
   canvas.height = 900;
-  const ctx = canvas.getContext('2d')!;
+  const ctx = canvas.getContext('2d', canvasSettings)!;
   ctx.fillStyle = '#141619';
   ctx.fillRect(0, 0, 1600, 900);
   ctx.fillStyle = '#eeeff4';
@@ -1552,7 +1588,7 @@ function exportImage() {
   const colorMode =
     isLook() && state.preserve ? 'Input tracking' : 'Actual output';
   ctx.fillText(
-    `AXES: ${axisMode} | DOTS: ${state.flatColors ? 'Flat' : 'Shaded'} | COLORS: ${colorMode} | ${state.target === 'lut' ? `${state.interpolation} | DOMAIN clamped: ${clippedInputs}` : `Color loss: ${conversionLoss.filter(Boolean).length}`}`,
+    `DISPLAY: ${displayName} | AXES: ${axisMode} | DOTS: ${state.flatColors ? 'Flat' : 'Shaded'} | COLORS: ${colorMode} | ${state.target === 'lut' ? `${state.interpolation} | DOMAIN clamped: ${clippedInputs}` : `Color loss: ${conversionLoss.filter(Boolean).length}`}`,
     40,
     835,
     1520,
@@ -1607,10 +1643,31 @@ function exportImage() {
 }
 export function mountLab() {
   document.title = '色体积工作台 · Chromatic Volume';
+  viewOptions.append(
+    el('summary', {}, icon('sliders'), '显示与叠加'),
+    displayControls,
+    overlayControls,
+  );
   lab.append(exportFeedback);
   lab.prepend(viewTabs('volume'));
   root.replaceChildren(el('main', { class: 'workbench-page' }, lab), toast);
-  if (!restored) activeFigure = volumeFigures[0];
+  const linked = search.get('fig');
+  const initialFigure = restored
+    ? null
+    : ((linked === 'last' ? volumeFigures.at(-1) : null) ??
+      volumeFigures.find((figure) => figure.id === linked) ??
+      volumeFigures[0]);
+  activeFigure = initialFigure;
+  onFigureStep((direction) => {
+    const index = activeFigure ? volumeFigures.indexOf(activeFigure) : -1;
+    const next =
+      volumeFigures[index < 0 && direction < 0 ? -1 : index + direction];
+    if (next) applyFigure(next);
+    else if (index >= 0) {
+      const href = neighbourHref('volume', direction);
+      if (href) location.assign(href);
+    }
+  });
   syncCompareSelect();
   renderFigures();
   renderOverlayControls();
@@ -1618,6 +1675,8 @@ export function mountLab() {
   renderInspector();
   renderDisplayControls();
   updateModel();
+  if (initialFigure && initialFigure !== volumeFigures[0])
+    applyFigure(initialFigure);
   try {
     views = [leftCanvas, rightCanvas].map(
       (canvas) => new VolumeView(canvas, state, draw, pick),
