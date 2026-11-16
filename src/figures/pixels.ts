@@ -17,6 +17,7 @@ import {
   readoutTable,
   segmented,
   SERIES,
+  step,
   ticks,
   type CodeRange,
 } from './plot';
@@ -246,14 +247,17 @@ function subsampling({ host, controls, readout }: FigureContext) {
     plot.redraw();
   };
   controls.append(
-    segmented(
+    step(
       '抽样方式',
-      schemes.map((s) => ({ id: s.id, name: s.name })),
-      scheme.id,
-      (v) => {
-        scheme = schemes.find((s) => s.id === v)!;
-        update();
-      },
+      segmented(
+        '抽样方式',
+        schemes.map((s) => ({ id: s.id, name: s.name })),
+        scheme.id,
+        (v) => {
+          scheme = schemes.find((s) => s.id === v)!;
+          update();
+        },
+      ),
     ),
   );
   update();
@@ -375,34 +379,45 @@ function bitDepth({ host, controls, readout }: FigureContext) {
     );
     plot.redraw();
   };
-  controls.append(
-    segmented('码值范围', codeRanges, codeRange, (v) => {
-      codeRange = v;
+  const display = segmented(
+    '显示',
+    [
+      { id: 'stretch', name: '放大对比' },
+      { id: 'plain', name: '原样显示' },
+    ] as const,
+    'stretch',
+    (v) => {
+      stretch = v === 'stretch';
       update();
-    }),
-    segmented(
-      '范围',
-      [
-        { id: 'narrow', name: '暗部窄范围 0.20–0.30' },
-        { id: 'full', name: '全范围 0–1' },
-      ] as const,
-      'narrow',
-      (v) => {
-        range = v === 'narrow' ? [0.2, 0.3] : [0, 1];
-        update();
-      },
+    },
+  );
+  controls.append(
+    step(
+      '信号范围',
+      segmented(
+        '范围',
+        [
+          { id: 'narrow', name: '暗部窄范围 0.20–0.30' },
+          { id: 'full', name: '全范围 0–1' },
+        ] as const,
+        'narrow',
+        (v) => {
+          range = v === 'narrow' ? [0.2, 0.3] : [0, 1];
+          // Stretching 0–1 to 0–1 changes nothing.
+          display
+            .querySelectorAll('button')
+            .forEach((item) => (item.disabled = v === 'full'));
+          update();
+        },
+      ),
     ),
-    segmented(
-      '显示',
-      [
-        { id: 'stretch', name: '放大对比' },
-        { id: 'plain', name: '原样显示' },
-      ] as const,
-      'stretch',
-      (v) => {
-        stretch = v === 'stretch';
+    step('显示', display),
+    step(
+      '码值范围',
+      segmented('码值范围', codeRanges, codeRange, (v) => {
+        codeRange = v;
         update();
-      },
+      }),
     ),
   );
   update();
@@ -476,10 +491,13 @@ function bayer({ host, controls, readout }: FigureContext) {
     '拜耳阵列与去马赛克',
   );
   controls.append(
-    segmented('阶段', stages, stage, (v) => {
-      stage = v;
-      plot.redraw();
-    }),
+    step(
+      '阶段',
+      segmented('阶段', stages, stage, (v) => {
+        stage = v;
+        plot.redraw();
+      }),
+    ),
   );
   return () => plot.destroy();
 }
@@ -490,6 +508,8 @@ const figures: FigureDef[] = [
     number: 36,
     title: '色度抽样',
     conditions: 'BT.709 Y′CbCr（非恒定亮度）· 块平均 · 最近邻重建',
+    reading:
+      '四格是同一张 24×16 像素测试图：原图、按所选方式抽样后的重建、每个像素都保留的亮度 Y′、以及被相邻像素共用的色度 Cb/Cr（方框是一个共用块）。',
     grade: 'illustrative',
     highlight:
       '观察字幕彩边、霓虹细线或绿幕边缘时，要留意色度分辨率。切换 4:4:4、4:2:2 与 4:2:0，比较测试图边缘的变化：即使编码亮度 Y′ 保留，重建后的线性亮度 Y 仍可能改变。这里用块平均与最近邻重建说明机制，不对应某种具体编码器。',
@@ -509,9 +529,11 @@ const figures: FigureDef[] = [
     number: 37,
     title: '位深与色带',
     conditions: '均匀量化 · 8 / 10-bit · Full / Legal range',
+    reading:
+      '两条灰阶是同一段信号分别按 8-bit 和 10-bit 量化的结果；下方阶梯图是这段信号最前面 8% 的码值，橙色为 8-bit，绿色为 10-bit，虚线为未量化的理想值。',
     grade: 'illustrative',
     highlight:
-      '天空、烟雾和暗部渐变在后期拉开对比后，量化台阶更容易显露。切换 8／10-bit 与 Full／Legal range，观察同一段信号的码值步长；10-bit 级数为 8-bit 的 4 倍。放大对比仅用于看清台阶，实际画面还会受噪声、抖动与编码影响。',
+      '天空、烟雾和暗部渐变在后期拉开对比后，量化台阶更容易显露。对照 8-bit 与 10-bit 两行，并切换 Full／Legal range，观察同一段信号的码值步长；10-bit 级数为 8-bit 的 4 倍。放大对比仅用于看清台阶，实际画面还会受噪声、抖动与编码影响。',
     provenance: {
       domain:
         '对归一化信号直接量化；Legal range 取 BT.709 / BT.2100 窄范围 16–235（8-bit）、64–940（10-bit）',
@@ -526,6 +548,8 @@ const figures: FigureDef[] = [
     number: 38,
     title: 'Bayer 阵列与去马赛克',
     conditions: 'RGGB · 线性光采样 · 双线性插值 · PSNR 在 sRGB 编码域',
+    reading:
+      '一张 28×18 像素的测试图，在四个阶段间切换：原图、每个像素只保留 R、G、B 之一的马赛克、插值重建的结果、重建与原图的误差（放大 4 倍）。',
     grade: 'illustrative',
     highlight:
       '拍摄细纹服装或高对比布景时，伪色与边缘拉链纹可能来自采样和去马赛克。对照测试图、RGGB 马赛克、重建与误差，观察细条纹和斜边；R、B 的采样点数各为 G 的一半。这里采用双线性插值，不代表具体摄影机或 RAW 软件的成像质量。',

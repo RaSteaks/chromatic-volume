@@ -46,6 +46,8 @@ import {
   segmented,
   select,
   SERIES,
+  step,
+  stepNote,
   ticks,
   type Frame,
 } from './plot';
@@ -256,13 +258,16 @@ function cmfFigure(kind: 'xyz' | 'rgb') {
         update();
       },
     });
-    controls.append(play.element);
+    controls.append(step('', play.element, stepNote('或指向画布选波长')));
     if (kind === 'xyz')
       controls.append(
-        toggle('cmf-10', '叠加 CIE 1964 10°', false, (on) => {
-          showTen = on;
-          update();
-        }),
+        step(
+          '',
+          toggle('cmf-10', '叠加 CIE 1964 10°', false, (on) => {
+            showTen = on;
+            update();
+          }),
+        ),
       );
     const stopProbe = probe(plot.canvas, (p) => {
       if (!p || !lastFrame) return;
@@ -382,7 +387,7 @@ function blackbody({ host, controls, readout }: FigureContext) {
       update();
     },
   });
-  controls.append(play.element);
+  controls.append(step('', play.element));
   update();
   return () => {
     play.destroy();
@@ -476,17 +481,20 @@ function metamerism({ host, controls, readout }: FigureContext) {
     plot.redraw();
   };
   controls.append(
-    segmented(
+    step(
       '光源',
-      [
-        { id: 'd65', name: 'D65 日光' },
-        { id: 'a', name: 'A 白炽灯' },
-      ] as const,
-      illuminant,
-      (v) => {
-        illuminant = v;
-        update();
-      },
+      segmented(
+        '光源',
+        [
+          { id: 'd65', name: 'D65 日光' },
+          { id: 'a', name: 'A 白炽灯' },
+        ] as const,
+        illuminant,
+        (v) => {
+          illuminant = v;
+          update();
+        },
+      ),
     ),
   );
   update();
@@ -609,14 +617,17 @@ function tm30Figure({ host, controls, readout }: FigureContext) {
     plot.redraw();
   };
   controls.append(
-    select(
-      '光源',
-      tm30.sources.map((s) => ({ id: s.id, name: s.name })),
-      source.id,
-      (id) => {
-        source = tm30.sources.find((s) => s.id === id)!;
-        update();
-      },
+    step(
+      '',
+      select(
+        '光源',
+        tm30.sources.map((s) => ({ id: s.id, name: s.name })),
+        source.id,
+        (id) => {
+          source = tm30.sources.find((s) => s.id === id)!;
+          update();
+        },
+      ),
     ),
   );
   update();
@@ -787,14 +798,17 @@ function cameraFigure({ host, controls, readout }: FigureContext) {
     plot.redraw();
   };
   controls.append(
-    segmented(
+    step(
       '相机',
-      names.map((n) => ({ id: n, name: n.replace(' (NPL)', '') })),
-      name,
-      (v) => {
-        name = v;
-        update();
-      },
+      segmented(
+        '相机',
+        names.map((n) => ({ id: n, name: n.replace(' (NPL)', '') })),
+        name,
+        (v) => {
+          name = v;
+          update();
+        },
+      ),
     ),
   );
   update();
@@ -807,6 +821,8 @@ const figures: FigureDef[] = [
     number: 26,
     title: 'CIE 配色函数',
     conditions: 'CIE 1931 2° · 可叠加 CIE 1964 10° · 380–780 nm / 5 nm',
+    reading:
+      '三条曲线是标准观察者对各波长单色光的三刺激值 x̄、ȳ、z̄。竖直游标所在波长的数值、色度和色样显示在右侧。',
     grade: 'reference',
     highlight:
       '理解片场光源的颜色与亮度，需要看光谱如何经标准观察者加权成 XYZ。移动读数可比较不同波长的贡献；2° 的 ȳ 对应光度函数 V(λ)。这些曲线描述人眼配色参照，摄影机感光响应需另看「相机灵敏度与 Luther 条件」。',
@@ -823,6 +839,8 @@ const figures: FigureDef[] = [
     number: 27,
     title: 'RGB 配色函数',
     conditions: 'Wright & Guild 1931 · 2° · 原色 700 / 546.1 / 435.8 nm',
+    reading:
+      '三条曲线是用 700 / 546.1 / 435.8 nm 三个原色匹配各波长单色光所需的量 r̄、ḡ、b̄；红色区域内数值为负。竖直游标所在波长的数值显示在右侧。',
     grade: 'reference',
     highlight:
       '高饱和灯光在监视器上可能无法原样重现，三原色配色实验能解释这种范围限制。这里部分波长需要负的配色系数，说明给定三个真实原色无法用全正混合匹配全部光谱色。曲线属于 Wright–Guild 实验原色，并非某款监视器或摄影机的 RGB 响应。',
@@ -838,6 +856,8 @@ const figures: FigureDef[] = [
     number: 28,
     title: '黑体辐射',
     conditions: 'Planck · c₂ = 1.4388×10⁻² m·K · 560 nm 归一 · 2000–10000 K',
+    reading:
+      '亮色曲线是当前温度下黑体的光谱（560 nm 处归一为 1），淡色曲线是六个参考温度；小图里的点是该温度在 xy 色度图普朗克轨迹上的位置。',
     grade: 'reference',
     highlight:
       '可用钨丝灯的暖光作参照，观察理想黑体随温度变化的光谱和色度。色温按 mired 排列，相同开尔文差在高色温端造成的色度变化更小。曲线在 560 nm 归一，只比较光谱形状；同色温 LED 的真实光谱仍可能不同。',
@@ -854,6 +874,8 @@ const figures: FigureDef[] = [
     number: 29,
     title: '同色异谱',
     conditions: 'D65 ↔ A · Bradford 适配到 D65 · ΔE2000',
+    reading:
+      '橙、青两条曲线是两个样本的反射率，灰色底是当前光源的光谱。右侧色样是两个样本在该光源下的颜色及其色差。',
     grade: 'illustrative',
     highlight:
       '换景或换灯后，原本相近的戏服、道具颜色可能难以重新匹配。这里用两条构造反射率演示：它们在 D65 下同色，换成 A 光源后出现差异，即使适配到共同白点也不消失。ΔE00 描述这对样本的差异，不代表实测戏服或具体摄影机。',
@@ -869,9 +891,11 @@ const figures: FigureDef[] = [
     number: 30,
     title: 'TM-30 色矢量图',
     conditions: 'ANSI/IES TM-30-18 · 99 CES · CAM02-UCS · 16 色相区间',
+    reading:
+      '虚线圆是参考光源下 16 个色相区间的平均位置，红色折线是被测光源下的对应位置，白色线段连接同一区间的两个位置：向外表示饱和度升高，沿圆周表示色相偏移。',
     grade: 'reference',
     highlight:
-      '为布景与服装选灯时，除了色温，还可观察各色相区间相对参考光源的变化。箭头表示 99 个样本分组后的平均偏移，Rf 与 Rg 分别概括保真度和色域变化。TM-30 基于人眼色貌模型；这些数值不等于某台电影摄影机的还原误差。',
+      '为布景与服装选灯时，除了色温，还可观察各色相区间相对参考光源的变化。线段表示 99 个样本分组后的平均偏移，Rf 与 Rg 分别概括保真度和色域变化。TM-30 基于人眼色貌模型；这些数值不等于某台电影摄影机的还原误差。',
     provenance: {
       data: '99 条 CES 光谱与各光源 SPD，Colour Science 0.4.4 离线计算',
       domain:
@@ -886,6 +910,8 @@ const figures: FigureDef[] = [
     number: 31,
     title: '相机灵敏度与 Luther 条件',
     conditions: 'NPL 实测灵敏度 · 对 x̄ȳz̄ 的最小二乘 3×3 拟合',
+    reading:
+      '上图是相机三个通道的实测光谱灵敏度。下图细实线是 CIE x̄ȳz̄，虚线是用一个 3×3 矩阵从相机灵敏度组合出的最佳近似；两者的差距即右侧的残差。',
     grade: 'reference',
     highlight:
       '多机匹配时，一组 3×3 矩阵未必能在所有灯光与材质下都精确对齐颜色。图中用实测相机响应拟合标准观察者，残差非零说明不满足 Luther–Ives 条件。这里的 Nikon／Sigma 数据用于解释原理，不代表电影摄影机的实测匹配结果。',
@@ -903,6 +929,8 @@ const figures: FigureDef[] = [
     number: 32,
     title: '加色混合与减色混合',
     conditions: '高斯光谱 · 单常数 Kubelka–Munk · D65 · CIE 1931 2°',
+    reading:
+      '左图是两束光的光谱（虚线）及其相加结果（实线），右图是两种颜料的反射率及按 Kubelka–Munk 混合的结果；每张图下方的色样是两个成分和混合色。',
     grade: 'illustrative',
     highlight:
       '布光叠加有色光与置景混合颜料，会得到不同的颜色路径。光谱相加时，混合色度落在两光的连线上；此处颜料模型混合 K/S，反射率非线性变化，路径偏离直线。光谱和颜料均为理想化样本，可用于理解差异，不能据此配制真实涂料。',

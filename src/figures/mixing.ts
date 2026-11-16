@@ -22,6 +22,7 @@ import {
   polyline,
   readoutTable,
   segmented,
+  step,
   ticks,
 } from './plot';
 
@@ -218,20 +219,23 @@ export function mixing({ host, controls, readout }: FigureContext) {
     (v) => `${Math.round(v * 100)}%`,
   );
   controls.append(
-    segmented(
+    step(
       '组合',
-      [
-        { id: 'a', name: '红+绿 / 黄+青' },
-        { id: 'b', name: '红+蓝 / 黄+品红' },
-        { id: 'c', name: '绿+蓝 / 青+品红' },
-      ] as const,
-      'a',
-      (v) => {
-        pair = pairs.find((p) => p.id === v)!;
-        update();
-      },
+      segmented(
+        '组合',
+        [
+          { id: 'a', name: '红+绿 / 黄+青' },
+          { id: 'b', name: '红+蓝 / 黄+品红' },
+          { id: 'c', name: '绿+蓝 / 青+品红' },
+        ] as const,
+        'a',
+        (v) => {
+          pair = pairs.find((p) => p.id === v)!;
+          update();
+        },
+      ),
     ),
-    r.element,
+    step('', r.element),
   );
   update();
   return () => plot.destroy();

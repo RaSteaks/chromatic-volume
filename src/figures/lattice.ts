@@ -2,6 +2,10 @@ import type { Vec3 } from '../model';
 
 export interface LatticeKeyframe {
   name: string;
+  /** Button text for this state. */
+  short: string;
+  /** Readout text for a position at this state; three decimals otherwise. */
+  format?: (position: Vec3) => string[];
   axes: [string, string, string];
   position: (u: Vec3) => Vec3;
   color: (u: Vec3) => Vec3;

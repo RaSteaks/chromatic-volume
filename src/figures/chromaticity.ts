@@ -32,6 +32,8 @@ import {
   probe,
   readoutTable,
   segmented,
+  step,
+  stepNote,
   ticks,
   type Frame,
 } from './plot';
@@ -410,35 +412,45 @@ function horseshoe({ host, controls, readout }: FigureContext) {
     },
   });
   controls.append(
-    cycle.element,
-    segmented(
+    step('', cycle.element),
+    step(
       '坐标',
-      [
-        { id: 'uv', name: 'u′v′' },
-        { id: 'xy', name: 'xy' },
-      ] as const,
-      plane,
-      (v) => {
-        plane = v;
-        plot.redraw();
-      },
+      segmented(
+        '坐标',
+        [
+          { id: 'uv', name: 'u′v′' },
+          { id: 'xy', name: 'xy' },
+        ] as const,
+        plane,
+        (v) => {
+          plane = v;
+          plot.redraw();
+        },
+      ),
     ),
-    segmented(
+    step(
       '视野',
-      [
-        { id: 'full', name: '全图' },
-        { id: 'zoom', name: '白点附近' },
-      ] as const,
-      'full',
-      (v) => {
-        zoomed = v === 'zoom';
-        plot.redraw();
-      },
+      segmented(
+        '视野',
+        [
+          { id: 'full', name: '全图' },
+          { id: 'zoom', name: '白点附近' },
+        ] as const,
+        'full',
+        (v) => {
+          zoomed = v === 'zoom';
+          plot.redraw();
+        },
+      ),
     ),
-    toggle('locus-10', '叠加 10° 轨迹', false, (on) => {
-      showTen = on;
-      plot.redraw();
-    }),
+    step(
+      '',
+      toggle('locus-10', '叠加 10° 轨迹', false, (on) => {
+        showTen = on;
+        plot.redraw();
+      }),
+    ),
+    step('读数', stepNote('指向画布读取坐标 · 方向键微调')),
   );
   update();
   return () => {
@@ -579,24 +591,46 @@ function macAdam({ host, controls, readout }: FigureContext) {
     },
     '麦克亚当椭圆在 xy 与 u′v′ 之间变换',
   );
-  const play = playback({
-    id: 'macadam',
-    label: 'xy → u′v′',
-    min: 0,
-    max: 1,
-    step: 0.01,
-    value: 0,
-    speed: 0.3,
-    bounce: true,
-    format: (v) => `${Math.round(v * 100)}%`,
-    onChange: (v) => {
-      t = v;
+  // Two states; the motion between them is only a transition.
+  let frameId = 0;
+  const goTo = (target: number) => {
+    cancelAnimationFrame(frameId);
+    const from = t;
+    if (
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches ||
+      from === target
+    ) {
+      t = target;
       plot.redraw();
-    },
-  });
-  controls.append(play.element);
+      return;
+    }
+    let start = 0;
+    const tick = (time: number) => {
+      start ||= time;
+      const k = Math.min((time - start) / 600, 1);
+      const eased = k * k * (3 - 2 * k);
+      t = k === 1 ? target : from + (target - from) * eased;
+      plot.redraw();
+      if (k < 1) frameId = requestAnimationFrame(tick);
+    };
+    frameId = requestAnimationFrame(tick);
+  };
+  controls.append(
+    step(
+      '坐标',
+      segmented(
+        '坐标',
+        [
+          { id: 'xy', name: 'xy' },
+          { id: 'uv', name: 'u′v′' },
+        ] as const,
+        'xy',
+        (v) => goTo(v === 'uv' ? 1 : 0),
+      ),
+    ),
+  );
   return () => {
-    play.destroy();
+    cancelAnimationFrame(frameId);
     plot.destroy();
   };
 }
@@ -702,14 +736,17 @@ function hueLines({ host, controls, readout }: FigureContext) {
     'CIELAB 与 Oklab 的等色相线',
   );
   controls.append(
-    segmented(
+    step(
       '色带色相',
-      primariesRgb.map((p) => ({ id: p.id, name: p.name })),
-      'blue',
-      (v) => {
-        focus = v;
-        plot.redraw();
-      },
+      segmented(
+        '色带色相',
+        primariesRgb.map((p) => ({ id: p.id, name: p.name })),
+        'blue',
+        (v) => {
+          focus = v;
+          plot.redraw();
+        },
+      ),
     ),
   );
   // Hue drift of each space's constant-hue line, measured in the other space.
@@ -764,6 +801,8 @@ const figures: FigureDef[] = [
     number: 23,
     title: 'CIE 色度图',
     conditions: 'CIE 1931 2° · u′v′ / xy · 原生白点，无适配',
+    reading:
+      '马蹄形边界是光谱轨迹，内部每个位置是一个色度；三角形是所选色域三个基色围成的范围。黑白双线为普朗克轨迹，蓝色虚线为日光轨迹，短横线为等色温线。',
     grade: 'reference',
     highlight:
       '准备监看或交付时，可在这里对照摄影机、工作与显示色域的色度边界，并放大白点附近观察 CCT 与 Duv。三角形不包含亮度、传递函数或观看条件；其中的 Display P3 也不能直接当作完整的影院放映条件。Duv 始终按 CIE 1960 uv 计算。',
@@ -781,6 +820,8 @@ const figures: FigureDef[] = [
     number: 24,
     title: 'MacAdam 椭圆',
     conditions: 'MacAdam 1942 · 观察者 PGN · 25 个椭圆 ×10 · xy ↔ u′v′',
+    reading:
+      '每个椭圆围住一个中心色度周围配色结果的离散范围（放大 10 倍），颜色取自中心色度；外圈白线是光谱轨迹。同一批椭圆可画在 xy 或 u′v′ 平面上。',
     grade: 'reference',
     highlight:
       '监看对色时，色度图上同样长的位移不一定同样明显。切换 xy 与 u′v′，观察椭圆大小和方向的变化；u′v′ 改善了尺度一致性，但并未消除方向差异。这里是特定实验条件下放大 10 倍的椭圆，不能直接作为显示器验收容差。',
@@ -797,6 +838,8 @@ const figures: FigureDef[] = [
     number: 25,
     title: '等色相线：CIELAB 与 Oklab',
     conditions: 'CIELAB (D65) vs Oklab · 等 L、等 h · C 从 0 到 sRGB 原色',
+    reading:
+      '每条线是保持明度和色相角不变、把色度从 0（灰）增加到 sRGB 原色时经过的 xy 色度；虚线按 CIELAB 计算，实线按 Oklab 计算。下方两条色带是所选色相沿这两条线的实际颜色。',
     grade: 'reference',
     highlight:
       '降低蓝色灯光或服装的饱和度时，保持模型中的色相角不变，仍可能得到不同的中间色。对照 CIELAB 与 Oklab 的等 L、等 h 路径，蓝区分歧尤其明显。这里量化的是两个空间的分歧，哪条更接近视觉恒定色相仍需实验依据。',

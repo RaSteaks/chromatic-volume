@@ -26,6 +26,8 @@ import {
   readoutTable,
   segmented,
   SERIES,
+  step,
+  stepNote,
   ticks,
   type CodeRange,
   type Frame,
@@ -242,36 +244,45 @@ function curveFigure(options: {
       play.set(Math.round(stops * 20) / 20);
     });
     controls.append(
-      play.element,
-      segmented(
-        '纵轴',
-        [
-          { id: 'signal', name: '信号' },
-          { id: 'slope', name: '斜率' },
-        ] as const,
-        view,
-        (v) => {
-          view = v;
-          plot.redraw();
-        },
+      step('', play.element, stepNote('或指向画布移动游标')),
+      step(
+        '曲线',
+        el(
+          'div',
+          { class: 'curve-toggles' },
+          ...options.curves.map((c) => {
+            const item = toggle(`curve-${c.id}`, c.name, true, (on) => {
+              if (on) visible.add(c.id);
+              else visible.delete(c.id);
+              update();
+            });
+            item.lastElementChild?.prepend(
+              el('i', { class: 'curve-chip', style: `background:${c.color}` }),
+            );
+            return item;
+          }),
+        ),
       ),
-      segmented('码值范围', codeRanges, range, (v) => {
-        range = v;
-        update();
-      }),
-      el(
-        'div',
-        { class: 'curve-toggles' },
-        ...options.curves.map((c) => {
-          const item = toggle(`curve-${c.id}`, c.name, true, (on) => {
-            if (on) visible.add(c.id);
-            else visible.delete(c.id);
-            update();
-          });
-          item.lastElementChild?.prepend(
-            el('i', { class: 'curve-chip', style: `background:${c.color}` }),
-          );
-          return item;
+      step(
+        '纵轴',
+        segmented(
+          '纵轴',
+          [
+            { id: 'signal', name: '信号' },
+            { id: 'slope', name: '斜率' },
+          ] as const,
+          view,
+          (v) => {
+            view = v;
+            plot.redraw();
+          },
+        ),
+      ),
+      step(
+        '码值范围',
+        segmented('码值范围', codeRanges, range, (v) => {
+          range = v;
+          update();
         }),
       ),
     );
@@ -536,7 +547,7 @@ function hdCurve({ host, controls, readout }: FigureContext) {
     dmax = v;
     update();
   });
-  controls.append(g.element, d.element);
+  controls.append(step('', g.element), step('', d.element));
   update();
   return () => plot.destroy();
 }
@@ -548,6 +559,8 @@ const figures: FigureDef[] = [
     title: '传递函数',
     conditions:
       '横轴 log₂(L / 漫反射白) · PQ 白 = 203 cd/m² · HLG 白 = 75% · Log 以 0.18 为中灰',
+    reading:
+      '每条曲线是一种编码：横轴为相对漫反射白的曝光档数，纵轴为编码后的信号值。竖直游标所在曝光处，各曲线的信号值和 10-bit 码值列在右侧。',
     grade: 'reference',
     highlight:
       '在摄影机记录、调色工作编码与 HDR 交付之间切换时，先确认曲线用途和输入标尺。对照 LogC4、S-Log3、DaVinci Intermediate 与 PQ／HLG 的中灰、白和高光码值；斜率显示每档分配的码值数。这里的编码余量不等于摄影机传感器的实测动态范围。',
@@ -591,6 +604,8 @@ const figures: FigureDef[] = [
     title: '色调映射曲线',
     conditions:
       '横轴 log₂(L / 0.18) · Reinhard、Hable、ACES 拟合、AgX · 输出 sRGB 编码',
+    reading:
+      '每条曲线是一种色调映射：横轴为相对 18% 中灰的场景曝光档数，纵轴为 sRGB 编码的显示值。图下方的灰阶条是各曲线在同一曝光范围内的实际输出。',
     grade: 'approximate',
     highlight:
       '处理中灰、窗外高光或灯具亮部时，可用曲线观察显示对比如何分配。中灰落点影响整体亮度，斜率峰说明对比集中在哪段，肩部压缩高光差异。这里仅比较 R = G = B 的中性输入；饱和灯光的偏色与去饱和需结合「RGB 变换」晶格观察。',
@@ -630,6 +645,8 @@ const figures: FigureDef[] = [
     number: 35,
     title: '胶片特性曲线（H&D）',
     conditions: '密度 D 对 log₁₀ H · 逻辑斯谛示意 · 片基灰雾 0.15',
+    reading:
+      '曲线是胶片密度随曝光量对数的变化；三段底色标出趾部、直线部和肩部，虚线切线的斜率是 γ，两条水平虚线是片基灰雾和最大密度。',
     grade: 'illustrative',
     highlight:
       '理解电影负片的曝光与反差，可先看曝光量如何变成光学密度：趾部、直线部和肩部承担不同响应。此示意中增大 γ，会让同一密度范围对应的曝光档数减少。纵轴是密度，不是屏幕亮度；它未模拟具体胶片、冲洗或印片 Look。',

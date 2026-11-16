@@ -2126,9 +2126,121 @@ textarea {
 .play-button {
   min-width: 74px;
 }
-.figure-hint {
+/* Reading line: what the drawing shows, directly above it. */
+.figure-reading {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 0;
+  padding: 6px 20px 12px;
+  font-size: 13px;
+  line-height: 1.7;
+  color: #d3d5de;
+}
+.reading-tag {
+  flex-shrink: 0;
+  padding: 1px 7px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
   font-size: 11px;
+  line-height: 1.6;
   color: var(--muted);
+}
+/* Numbered operations: the counter follows document order inside the lab. */
+.lab {
+  counter-reset: step;
+}
+.step-badge {
+  display: inline-grid;
+  place-items: center;
+  flex-shrink: 0;
+  width: 17px;
+  height: 17px;
+  border-radius: 50%;
+  background: #b6a0f42a;
+  color: #ece4ff;
+  font: 600 10px/1 var(--font-mono);
+}
+.step-badge::before {
+  counter-increment: step;
+  content: counter(step);
+}
+.figure-step {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  min-width: 0;
+}
+.figure-step:has(.playback),
+.figure-step:has(> .field) {
+  flex: 1 1 340px;
+  max-width: 620px;
+}
+.stepped {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+.workbench-page .visualization > .figure-reading {
+  flex-shrink: 0;
+  padding: 12px 18px 0;
+}
+.step-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--text);
+}
+.step-note {
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+.swatch-pick {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 4px 9px 4px 5px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: transparent;
+  font-size: 12px;
+  color: #bfc1cb;
+}
+.swatch-pick:hover {
+  color: var(--text);
+  background: var(--raised);
+}
+.swatch-pick[aria-pressed='true'] {
+  color: #ece4ff;
+  border-color: var(--accent);
+  background: #b6a0f42a;
+}
+.swatch-pick i {
+  width: 12px;
+  height: 18px;
+  border: 1px solid #ffffff30;
+}
+.swatch-pick i:first-child {
+  border-radius: 3px 0 0 3px;
+  border-right: 0;
+  margin-right: -6px;
+}
+.swatch-pick i + i {
+  border-radius: 0 3px 3px 0;
+}
+.track-chip {
+  display: inline-block;
+  width: 100%;
+  min-width: 34px;
+  height: 16px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  vertical-align: middle;
 }
 .segmented {
   display: inline-flex;
@@ -2147,7 +2259,11 @@ textarea {
   font-size: 12px;
   color: #bfc1cb;
 }
-.segment:hover {
+.segment:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+.segment:hover:not(:disabled) {
   color: var(--text);
   background: var(--raised);
 }
@@ -2268,17 +2384,9 @@ textarea {
   margin: 0 0 14px;
 }
 .swatch-table {
-  display: grid;
-  grid-template-columns: auto 1fr 1fr;
-  gap: 5px 8px;
-  align-items: center;
-  font-size: 11px;
-  color: var(--muted);
-}
-.swatch-table i {
-  height: 20px;
-  border-radius: 3px;
-  border: 1px solid var(--border);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 .curve-table {
   display: grid;
@@ -2958,4 +3066,12 @@ kbd {
         center / 100% 4px no-repeat,
       transparent;
   }
+}
+.figure-step:has(.curve-toggles) {
+  flex: 1 1 100%;
+  flex-wrap: nowrap;
+  align-items: flex-start;
+}
+.figure-step:has(.curve-toggles) > .step-label {
+  padding-top: 3px;
 }

@@ -64,6 +64,8 @@ for (const [view, ids] of Object.entries(pages)) {
       await expect(canvas).toHaveAttribute('data-painted', /\d+/);
       await expect(page.locator('.figure-highlight')).not.toBeEmpty();
       await expect(page.locator('.figure-conditions')).not.toBeEmpty();
+      await expect(page.locator('.figure-reading')).not.toBeEmpty();
+      expect(await page.locator('.figure-step').count()).toBeGreaterThan(0);
       await expect(page.locator('.figure-provenance dt').first()).toBeVisible();
     }
     // The tab badge matches the number of figures in the tab.
@@ -201,7 +203,7 @@ test('quantization steps depend on code range, not the displayed signal interval
   }
 });
 
-test('figure links restore the selected figure and play controls animate', async ({
+test('figure links restore the selected figure and state buttons move the lattice', async ({
   page,
 }) => {
   await page.goto('/?view=transform&fig=rgc');
@@ -209,12 +211,18 @@ test('figure links restore the selected figure and play controls animate', async
     '22. ACES Reference Gamut Compression',
   );
   const canvas = page.locator('.figure-host canvas');
-  // Figures open paused on the completed transform.
+  // Figures open on the completed transform.
   await expect(canvas).toHaveAttribute('data-progress', '2.000');
-  await page.getByRole('button', { name: '播放' }).click();
-  await expect(canvas).not.toHaveAttribute('data-progress', '2.000');
-  await page.getByRole('button', { name: '暂停' }).click();
-  await page.locator('#morph').fill('2');
+  const state = (name: string) =>
+    page.getByRole('button', { name, exact: true });
+  await expect(state('RGC 后')).toHaveAttribute('aria-pressed', 'true');
+  // A click animates to that state and stops there.
+  await state('S-Gamut3').click();
+  await expect(canvas).toHaveAttribute('data-progress', '0.000');
+  await expect(page.locator('.figure-stage-label')).toContainText(
+    'S-Gamut3 线性立方体',
+  );
+  await state('RGC 后').click();
   await expect(canvas).toHaveAttribute('data-progress', '2.000');
   await expect(page.locator('.figure-stage-label')).toContainText('（RGC）后');
   // The lattice is a draggable 3D view.
@@ -222,7 +230,6 @@ test('figure links restore the selected figure and play controls animate', async
   await canvas.press('ArrowRight');
   await expect(canvas).not.toHaveAttribute('data-camera', camera!);
 });
-
 test('interactive figure controls change the drawing', async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.goto('/?view=spectrum&fig=metamerism');
@@ -301,52 +308,67 @@ test('AgX curves and lattice swatches share the sRGB display encoding', async ({
   );
 });
 
-test('RGB morph labels and AP1 counts describe the current frame', async ({
+test('RGB state labels and AP1 counts describe the current state', async ({
   page,
 }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.goto('/?view=transform&fig=rgc');
   const status = page.locator('.figure-stage-label');
   const canvas = page.locator('.figure-host canvas');
-  // The figure opens on the completed transform; rewind to the source frame.
-  await page.locator('#morph').fill('0');
+  const state = (name: string) =>
+    page.getByRole('button', { name, exact: true });
+  // The figure opens on the completed transform; go back to the source state.
+  await state('S-Gamut3').click();
+  await expect(canvas).toHaveAttribute('data-progress', '0.000');
   await expect(status).not.toContainText('个节点在 AP1 之外');
-  await page.locator('#morph').fill('0.6');
-  await expect(status).toHaveText(/^过渡示意：/);
-  await expect(status).not.toContainText('个节点在 AP1 之外');
-  await expect(canvas).toHaveAttribute('aria-description', /R（过渡）/);
-  for (const [progress, count] of [
-    ['1', 206],
-    ['1.6', 117],
-    ['2', 0],
+  for (const [name, count] of [
+    ['AP1', 206],
+    ['RGC 后', 0],
   ] as const) {
-    await page.locator('#morph').fill(progress);
+    await state(name).click();
     await expect(status).toContainText(
       `当前 AP1 晶格：${count} / 729 个节点在 AP1 之外`,
     );
+    await expect(status).not.toHaveText(/^过渡示意：/);
     await expect(canvas).toHaveAttribute(
       'aria-description',
       /R AP1、G AP1、B AP1/,
     );
-    if (progress === '1.6') {
-      await expect(status).toHaveText(/^过渡示意：/);
-      await page.screenshot({
-        path: 'artifacts/fix-rgb-rgc-transition.png',
-        fullPage: true,
-      });
-    } else await expect(status).not.toHaveText(/^过渡示意：/);
   }
   await page.locator('.figure-button[data-figure="aces"]').click();
   await expect(page.locator('.figure-highlight')).toContainText(
     '最终趋向显示白',
   );
-  await expect(page.locator('.swatch-table')).toContainText('最终输出色样');
-  await page.locator('#morph').fill('0.6');
-  await expect(status).toHaveText(/^过渡示意：/);
-  await expect(canvas).toHaveAttribute('aria-description', /R（过渡）/);
-  await page.locator('#morph').fill('1');
   await expect(status).toHaveText(/^输出：ACES 拟合/);
   await expect(canvas).toHaveAttribute('aria-description', /R′、G′、B′/);
+  await state('输入').click();
+  await expect(status).toHaveText(/^输入：每通道 log₂ 曝光/);
+  await expect(canvas).toHaveAttribute('aria-description', /R EV、G EV、B EV/);
+});
+
+test('RGB transform figures follow one colour from input to output', async ({
+  page,
+}) => {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await page.goto('/?view=transform&fig=aces');
+  const canvas = page.locator('.figure-host canvas');
+  const readout = page.locator('.figure-readout');
+  // The first preset is tracked on entry: scene grey 0.18 sits at 0 EV.
+  await expect(readout).toContainText('跟踪：中灰 0.18');
+  await expect(readout).toContainText('+0.0 EV');
+  const red = page.getByRole('button', { name: '高亮红', exact: true });
+  await red.click();
+  await expect(red).toHaveAttribute('aria-pressed', 'true');
+  await expect(canvas).toHaveAttribute('data-tracked', '高亮红');
+  await expect(readout).toContainText('跟踪：高亮红');
+  await expect(readout).toContainText('+5.2 EV');
+  // Clicking a lattice node tracks that node instead: the centre node is 4·4·4.
+  await page.getByRole('button', { name: '输入', exact: true }).click();
+  await expect(canvas).toHaveAttribute('data-progress', '0.000');
+  const box = (await canvas.boundingBox())!;
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2 - 4);
+  await expect(canvas).toHaveAttribute('data-tracked', /^节点 /);
+  await expect(red).toHaveAttribute('aria-pressed', 'false');
 });
 
 test('CVD figures expose linear coordinates and final simulation details', async ({
@@ -364,9 +386,11 @@ test('CVD figures expose linear coordinates and final simulation details', async
       'aria-description',
       /R lin、G lin、B lin/,
     );
-    await page.locator('#morph').fill('0.5');
-    await expect(page.locator('.figure-stage-label')).toHaveText(/^过渡示意：/);
-    await page.locator('#morph').fill('1');
+    await page.getByRole('button', { name: '输入', exact: true }).click();
+    await expect(page.locator('.figure-stage-label')).toHaveText(
+      '输入：线性 sRGB 立方体',
+    );
+    await page.getByRole('button', { name: '输出', exact: true }).click();
     await expect(page.locator('.figure-stage-label')).toHaveText(
       '输出：Machado 模拟（线性 sRGB 坐标）',
     );
@@ -384,7 +408,6 @@ test('CVD figures expose linear coordinates and final simulation details', async
   }
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole('combobox', { name: '选择图例' }).selectOption('protan');
-  await page.locator('#morph').fill('1');
   await expect(page.locator('.figure-stage-label')).toHaveText(
     '输出：Machado 模拟（线性 sRGB 坐标）',
   );

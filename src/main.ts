@@ -114,6 +114,16 @@ const sourceTitle = el('strong', {}, '源：sRGB');
 const sourceTag = el('span', { class: 'mono' }, 'SOURCE');
 const viewStatus = el('span', { class: 'volume-caption' }, 'D65 · 编码 RGB');
 const mixingTitle = el('strong');
+/** Number of an operation; the digit comes from a CSS counter in document order. */
+const stepBadge = () =>
+  el('span', { class: 'step-badge', 'aria-hidden': 'true' });
+const readingText = el('span', {});
+const reading = el(
+  'p',
+  { class: 'figure-reading' },
+  el('span', { class: 'reading-tag' }, '读图'),
+  readingText,
+);
 const mixingDescription = el('p');
 const displayControls = el('div', { class: 'display-controls' });
 const overlayControls = el('div', { class: 'overlay-controls' });
@@ -456,6 +466,16 @@ function updateLabels() {
   mixingDescription.textContent = isLook()
     ? '0% 为输入，100% 为目标 Look。'
     : '插值仅用于演示；两种坐标的距离不可直接比较。';
+  const targetName =
+    target?.name ?? (state.target === 'lut' ? '3D LUT' : '自定义 Look');
+  const marked = '选中的采样点在两个画布上同时标出，点击任一点可改选。';
+  readingText.textContent = isLook()
+    ? `两个画布是同一批 ${source.name} 采样点，画在同一个绘图空间：源画布是处理前的位置，目标画布是经${targetName}处理后的位置和颜色。${marked}`
+    : state.plot !== 'native'
+      ? `两个画布画在同一个 ${getTarget(state.plot)!.name} 空间：源画布是 ${source.name} 采样点，目标画布是这些点转换到 ${targetName} 再解码后的位置；无损转换时两者重合。${marked}`
+      : compared
+        ? `两个画布是同一批 ${source.name} 采样点：对照画布是它们在 ${compared.name} 中的坐标，目标画布是在 ${targetName} 中的坐标，点色为采样颜色。${marked}`
+        : `源画布是 ${source.name} 的 ${state.density}×${state.density}×${state.density} 均匀采样点阵，目标画布是同一批采样点在 ${targetName} 中的坐标，点色为采样颜色。${marked}`;
   if (state.plot !== 'native') {
     leftCaption.textContent = `绘图：${getTarget(state.plot)!.name} · ${state.equalAxes ? '等单位轴比例' : '示意轴比例'}`;
     rightCaption.textContent = leftCaption.textContent;
@@ -795,6 +815,7 @@ function sampleInspector() {
     el(
       'div',
       { class: 'sample-selector' },
+      stepBadge(),
       el('label', { for: 'sample-index' }, '采样点'),
       input,
       el(
@@ -1399,6 +1420,7 @@ const viewPresets = [
 const cameraControls = el(
   'div',
   { class: 'camera-controls' },
+  el('span', { class: 'stepped step-label' }, stepBadge(), '视角'),
   el(
     'div',
     { class: 'button-group' },
@@ -1441,7 +1463,7 @@ const lab = el(
       el(
         'div',
         { class: 'panel-heading' },
-        el('h2', {}, '图例'),
+        el('h2', { class: 'stepped' }, stepBadge(), '图例'),
         el('span', { class: 'mono muted' }, `${volumeFigures.length}`),
       ),
       el(
@@ -1464,6 +1486,7 @@ const lab = el(
     el(
       'div',
       { class: 'visualization' },
+      reading,
       el(
         'div',
         { class: 'volume-pair' },
@@ -1508,7 +1531,12 @@ const lab = el(
       el(
         'div',
         { class: 'mix-control' },
-        el('div', {}, mixingTitle, mixingDescription),
+        el(
+          'div',
+          {},
+          el('div', { class: 'stepped' }, stepBadge(), mixingTitle),
+          mixingDescription,
+        ),
         strength.element,
       ),
       cameraControls,

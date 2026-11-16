@@ -56,6 +56,8 @@ export interface FigureDef {
   title: string;
   /** One specification line: observer, illuminant, domain, sampling. */
   conditions: string;
+  /** How to read the drawing: what the marks, positions and colours stand for. */
+  reading: string;
   grade: FigureGrade;
   /** The non-obvious result; live numbers belong in the readout. */
   highlight: string;
@@ -110,6 +112,13 @@ export function mountFigures(view: FigureViewId, groups: FigureGroup[]) {
   const title = el('h1', {});
   const titleGrade = el('span', { class: 'figure-title-grade' });
   const conditions = el('p', { class: 'figure-conditions' });
+  const readingText = el('span', {});
+  const reading = el(
+    'p',
+    { class: 'figure-reading' },
+    el('span', { class: 'reading-tag' }, '读图'),
+    readingText,
+  );
   const host = el('div', { class: 'figure-host' });
   const controls = el('div', { class: 'figure-controls' });
   const readout = el('div', { class: 'figure-readout' });
@@ -194,6 +203,7 @@ export function mountFigures(view: FigureViewId, groups: FigureGroup[]) {
     title.textContent = `${current.number}. ${current.title}`;
     titleGrade.replaceChildren(gradeTag(current.grade));
     conditions.textContent = current.conditions;
+    readingText.textContent = current.reading;
     highlight.textContent = current.highlight;
     linkReferences(highlight);
     provenance.replaceChildren(
@@ -249,6 +259,7 @@ export function mountFigures(view: FigureViewId, groups: FigureGroup[]) {
               ),
               el('div', { class: 'figure-heading-tools' }, mobile, stepper),
             ),
+            reading,
             host,
             controls,
           ),

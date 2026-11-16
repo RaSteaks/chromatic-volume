@@ -29,6 +29,11 @@ test('renders just the workbench and all available target models', async ({
   await ready(page);
   await expect(page.locator('header')).toHaveCount(0);
   await expect(page.locator('.hero,.guide,.presets')).toHaveCount(0);
+  // Guidance: one reading line above the canvases, operations numbered in order.
+  await expect(page.locator('.figure-reading')).toContainText(
+    '源画布是 sRGB 的 9×9×9 均匀采样点阵',
+  );
+  await expect(page.locator('.step-badge:visible')).toHaveCount(4);
   for (const target of colorTargets) {
     await page.locator(`[data-target="${target.id}"]`).click();
     await expect(page.locator('canvas').last()).toHaveAttribute(

@@ -388,6 +388,27 @@ export function chromaticityColor(xyz: Vec3): Vec3 {
 }
 
 /**
+ * One numbered operation under a figure: a short visible label and its
+ * controls. The number comes from a CSS counter, in document order.
+ */
+export function step(label: string, ...children: (Node | string | null)[]) {
+  return el(
+    'div',
+    { class: 'figure-step' },
+    el(
+      'span',
+      { class: 'step-label' },
+      el('span', { class: 'step-badge', 'aria-hidden': 'true' }),
+      label,
+    ),
+    ...children,
+  );
+}
+/** Plain instruction text inside a step (canvas gestures). */
+export const stepNote = (text: string) =>
+  el('span', { class: 'step-note' }, text);
+
+/**
  * A slider with a play button. Playback always starts paused, so a figure
  * opens on a stable, readable state; it loops or bounces and pauses while the
  * page is hidden.

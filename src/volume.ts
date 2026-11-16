@@ -29,6 +29,10 @@ export interface VolumeData {
     dots?: Vec3[];
     /** Optional per-segment colours (lattice edges). */
     segmentColors?: string[];
+    /** Radius of `dots` in CSS px. */
+    dotRadius?: number;
+    /** Draw above the points even when `linesBehind` is set (annotations). */
+    front?: boolean;
   }[];
   /** Explicit dot radius in CSS px; otherwise derived from the sampling density. */
   radius?: number;
@@ -297,7 +301,8 @@ export class VolumeView {
         this.line(point, data.positions[i], '#b9a5fa35'),
       );
     }
-    if (data.linesBehind) this.drawLines(data);
+    const lines = data.lines ?? [];
+    this.drawLines(data.linesBehind ? lines.filter((l) => !l.front) : []);
     this.points = data.positions
       .map((point, index) => ({ ...this.project(point), index }))
       .sort((a, b) => a.z - b.z);
@@ -353,7 +358,7 @@ export class VolumeView {
       }
       ctx.drawImage(sprite, p.x - radius, p.y - radius, radius * 2, radius * 2);
     }
-    if (!data.linesBehind) this.drawLines(data);
+    this.drawLines(data.linesBehind ? lines.filter((l) => l.front) : lines);
     if (selected !== null) {
       const point = this.points.find((p) => p.index === selected);
       if (point) {
@@ -393,9 +398,9 @@ export class VolumeView {
     this.canvas.dataset.points = String(data.positions.length);
     this.canvas.dataset.camera = `${this.state.yaw.toFixed(3)},${this.state.pitch.toFixed(3)},${this.state.zoom.toFixed(3)}`;
   }
-  private drawLines(data: VolumeData) {
+  private drawLines(lines: NonNullable<VolumeData['lines']>) {
     const ctx = this.context;
-    for (const line of data.lines ?? []) {
+    for (const line of lines) {
       if (line.points.length < 2) continue;
       const projected = line.points.map((point) => this.project(point));
       ctx.lineWidth = line.width;
@@ -423,7 +428,7 @@ export class VolumeView {
           if (!rgb) return;
           ctx.fillStyle = cssColor(rgb);
           ctx.beginPath();
-          ctx.arc(p.x, p.y, 3.2, 0, Math.PI * 2);
+          ctx.arc(p.x, p.y, line.dotRadius ?? 3.2, 0, Math.PI * 2);
           ctx.fill();
           ctx.strokeStyle = line.color;
           ctx.lineWidth = 1;
