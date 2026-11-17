@@ -9,9 +9,12 @@ const viewports = [
   { width: 844, height: 390 },
 ];
 
+/** The colour-volume workbench, opened on its signature figure. */
+const workbench = '/?fig=oklab';
+
 async function embed(page: Page, width = 390, height = 600, downloads = true) {
-  await page.goto('/');
-  const source = new URL('/', page.url());
+  await page.goto(workbench);
+  const source = new URL(workbench, page.url());
   source.hostname = source.hostname === 'localhost' ? '127.0.0.1' : 'localhost';
   await page.setContent(`
     <style>body { margin: 0 } iframe { display: block; border: 0 }</style>
@@ -32,7 +35,7 @@ for (const viewport of viewports) {
     page,
   }) => {
     await page.setViewportSize(viewport);
-    await page.goto('/');
+    await page.goto(workbench);
     await expect(page.locator('canvas').last()).toHaveAttribute(
       'data-points',
       '729',
@@ -72,9 +75,10 @@ for (const viewport of viewports) {
     const originalUrl = page.url();
     await frame.getByRole('button', { name: '俯视', exact: true }).click();
     expect(page.url()).toBe(originalUrl);
-    const status = frame.locator('.lab-status');
-    await status.scrollIntoViewIfNeeded();
-    await expect(status).toBeInViewport();
+    // The last control of the workbench stays reachable inside the frame.
+    const advanced = frame.locator('.advanced > summary');
+    await advanced.scrollIntoViewIfNeeded();
+    await expect(advanced).toBeInViewport();
   });
 
   test(`automatic preview fits ${viewport.width}×${viewport.height}`, async ({
@@ -236,7 +240,7 @@ test('failed and stalled preview modules leave a cover and recovery actions', as
   await expect(page.getByRole('alert')).toContainText('动态预览暂不可用');
   await expect(page.getByRole('button', { name: '重新加载' })).toBeVisible();
   await expect(
-    page.getByRole('link', { name: '独立打开工作台' }),
+    page.getByRole('link', { name: '在新窗口打开' }),
   ).toHaveAttribute('target', '_blank');
   await page.screenshot({ path: 'artifacts/delivery-load-failure.png' });
   await page.unroute(previewModule);
@@ -254,7 +258,8 @@ test('LUT import and PNG download work in a real cross-origin sandboxed iframe',
   page,
 }) => {
   const frame = await embed(page, 1000, 800);
-  await frame.locator('[data-target="lut"]').click();
+  await frame.locator('.advanced > summary').click();
+  await frame.getByLabel('目标模型', { exact: true }).selectOption('lut');
   await expect(frame.locator('.empty-target')).toBeVisible();
   for (const side of ['输入', '输出']) {
     await frame
@@ -290,6 +295,7 @@ test('download recovery persists when the iframe does not allow downloads', asyn
   page,
 }) => {
   const frame = await embed(page, 390, 600, false);
+  await frame.locator('.advanced > summary').click();
   await frame.getByLabel('目标模型', { exact: true }).selectOption('hsv');
   await frame.getByRole('button', { name: '导出对比图' }).click();
   await expect(frame.locator('.export-feedback')).toContainText(

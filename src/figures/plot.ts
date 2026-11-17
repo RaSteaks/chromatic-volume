@@ -387,20 +387,12 @@ export function chromaticityColor(xyz: Vec3): Vec3 {
     .coords.map((v) => v ?? 0) as Vec3;
 }
 
-/**
- * One numbered operation under a figure: a short visible label and its
- * controls. The number comes from a CSS counter, in document order.
- */
+/** One group of controls under a figure: a short visible label and its controls. */
 export function step(label: string, ...children: (Node | string | null)[]) {
   return el(
     'div',
     { class: 'figure-step' },
-    el(
-      'span',
-      { class: 'step-label' },
-      el('span', { class: 'step-badge', 'aria-hidden': 'true' }),
-      label,
-    ),
+    el('span', { class: 'step-label' }, label),
     ...children,
   );
 }

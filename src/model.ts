@@ -57,8 +57,6 @@ export interface LabState {
   compare: string;
   overlayOptimal: boolean;
   overlayPointer: boolean;
-  /** Gradient-path colour pair id, or '' when hidden. */
-  gradient: string;
 }
 const amount = (label: string, initial = 0, max = 1): Parameter => ({
   key: 'amount',
@@ -329,7 +327,6 @@ export function defaultState(): LabState {
     compare: '',
     overlayOptimal: false,
     overlayPointer: false,
-    gradient: '',
   };
 }
 export function createSamples(density: number): Vec3[] {

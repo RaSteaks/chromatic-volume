@@ -3,62 +3,69 @@ import type { Vec3 } from '../../src/model';
 import { expect, test, type Page } from '@playwright/test';
 import { volumeFigures } from '../../src/volume-figures';
 import { frame } from '../../src/figures/plot';
-
-const pages = {
-  transform: ['aces', 'agx', 'protan', 'deutan', 'tritan', 'rgc'],
-  chromaticity: ['cie1931', 'macadam', 'hue-lines'],
-  spectrum: [
-    'cmf',
-    'rgb-cmf',
-    'blackbody',
-    'metamerism',
-    'tm30',
-    'luther',
-    'mixing',
-  ],
-  curves: ['transfer', 'tonemap', 'hd'],
-  pixels: ['subsampling', 'bit-depth', 'bayer'],
-} as const;
+import { catalogue, figureTitle, stages } from '../../src/shell';
 
 function collectErrors(page: Page) {
   const errors: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));
   return errors;
 }
+const openAdvanced = (page: Page) =>
+  page.locator('.advanced > summary').click();
 
-test('tabs link every figure category from the volume workbench', async ({
-  page,
-}) => {
+test('the pipeline is the only navigation', async ({ page }) => {
   await page.goto('/');
-  const tabs = page.locator('.view-tab');
-  await expect(tabs).toHaveCount(6);
-  await expect(page.locator('.view-tab[aria-current="page"]')).toContainText(
-    '色体积',
+  await expect(page.locator('.stage-tab')).toHaveText(['拍摄', '调色', '交付']);
+  await expect(page.locator('.stage-tab[aria-current="page"]')).toHaveText(
+    '拍摄',
   );
-  await page.getByRole('link', { name: '色度图' }).click();
-  await expect(page).toHaveURL(/view=chromaticity/);
-  await expect(page.locator('.figure-heading h1')).toHaveText('23. CIE 色度图');
-  await page.getByRole('link', { name: '色体积' }).click();
+  await expect(page.locator('.figure-heading h1')).toHaveText('黑体辐射');
+  // No brand, counts, numbers, search, shortcuts or focus mode around the figure.
+  await expect(
+    page.locator(
+      '.view-brand, .view-tab-count, .search-button, .focus-toggle, .gamut-toggle, .step-badge, kbd',
+    ),
+  ).toHaveCount(0);
+  await page.getByRole('link', { name: '调色', exact: true }).click();
+  await expect(page.locator('.figure-heading h1')).toHaveText('CIE 色度图');
+  // A volume figure in the list opens the workbench in the same stage.
+  await page.locator('.figure-link[data-figure="oklab"]').click();
   await expect(page.locator('canvas').first()).toHaveAttribute(
     'data-points',
     '729',
   );
+  await expect(page.locator('.stage-tab[aria-current="page"]')).toHaveText(
+    '调色',
+  );
+  await expect(
+    page.locator('.figure-link[data-figure="oklab"]'),
+  ).toHaveAttribute('aria-current', 'true');
+  await page.locator('.figure-link[data-figure="hue-lines"]').click();
+  await expect(page.locator('.figure-host')).toHaveAttribute(
+    'data-figure',
+    'hue-lines',
+  );
 });
 
-for (const [view, ids] of Object.entries(pages)) {
-  test(`${view} figures all render without errors`, async ({ page }) => {
+for (const stage of stages) {
+  test(`${stage.name} figures all render without errors`, async ({ page }) => {
     const errors = collectErrors(page);
     await page.emulateMedia({ reducedMotion: 'reduce' });
-    await page.goto(`/?view=${view}`);
-    await expect(page.locator('.figure-button[data-figure]')).toHaveCount(
-      ids.length,
-    );
+    const entries = catalogue.filter((entry) => entry.stage === stage.id);
+    const ids = entries
+      .filter((entry) => entry.module !== 'volume')
+      .map((entry) => entry.id);
+    await page.goto(`/?fig=${ids[0]}`);
+    await expect(page.locator('.figure-link')).toHaveCount(entries.length);
     for (const id of ids) {
-      await page.locator(`.figure-button[data-figure="${id}"]`).click();
+      await page.locator(`.figure-link[data-figure="${id}"]`).click();
       await expect(page).toHaveURL(new RegExp(`fig=${id}`));
       await expect(page.locator('.figure-host')).toHaveAttribute(
         'data-figure',
         id,
+      );
+      await expect(page.locator('.figure-heading h1')).toHaveText(
+        figureTitle(id),
       );
       const canvas = page.locator('.figure-host canvas').first();
       await expect(canvas).toHaveAttribute('data-painted', /\d+/);
@@ -66,21 +73,28 @@ for (const [view, ids] of Object.entries(pages)) {
       await expect(page.locator('.figure-conditions')).not.toBeEmpty();
       await expect(page.locator('.figure-reading')).not.toBeEmpty();
       expect(await page.locator('.figure-step').count()).toBeGreaterThan(0);
-      await expect(page.locator('.figure-provenance dt').first()).toBeVisible();
+      expect(
+        await page.locator('.figure-provenance dt').count(),
+      ).toBeGreaterThan(0);
     }
-    // The tab badge matches the number of figures in the tab.
-    await expect(
-      page.locator(`.view-tab[data-view="${view}"] .view-tab-count`),
-    ).toHaveText(String(ids.length));
     expect(errors).toEqual([]);
   });
 }
 
-test('old links to a moved figure open it on its new tab', async ({ page }) => {
-  await page.goto('/?view=pixels&fig=mixing');
-  await expect(page).toHaveURL(/view=spectrum/);
+test('old tab links open the figure in its pipeline stage', async ({
+  page,
+}) => {
+  await page.goto('/?view=curves&fig=hd');
   await expect(page.locator('.figure-heading h1')).toHaveText(
-    '32. 加色混合与减色混合',
+    '胶片特性曲线（H&D）',
+  );
+  await expect(page.locator('.stage-tab[aria-current="page"]')).toHaveText(
+    '拍摄',
+  );
+  // A removed figure opens its old tab's first figure.
+  await page.goto('/?view=transform&fig=protan');
+  await expect(page.locator('.figure-heading h1')).toHaveText(
+    'ACES 1.x 色调映射（Hill 拟合）',
   );
 });
 
@@ -88,7 +102,7 @@ test('pointing at the chromaticity diagram reads xy, u′v′, CCT and Duv', asy
   page,
 }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });
-  await page.goto('/?view=chromaticity&fig=cie1931');
+  await page.goto('/?fig=cie1931');
   const canvas = page.locator('.figure-host canvas');
   await expect(canvas).toHaveAttribute('data-plane', 'uv');
   await page.getByRole('button', { name: '白点附近' }).click();
@@ -105,7 +119,7 @@ test('curve code values switch between full and legal range', async ({
   page,
 }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });
-  await page.goto('/?view=curves&fig=transfer');
+  await page.goto('/?fig=transfer');
   const srgb = page.locator('.curve-table span').filter({ hasText: 'sRGB' });
   // Cursor at diffuse white: sRGB is at full signal.
   await expect(srgb.locator('small')).toContainText('码值 1023');
@@ -122,7 +136,7 @@ test('chromaticity probe reports temperatures beyond its supported range', async
   page,
 }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });
-  await page.goto('/?view=chromaticity&fig=cie1931');
+  await page.goto('/?fig=cie1931');
   const canvas = page.locator('.figure-host canvas');
   await expect(canvas).toHaveAttribute('data-plane', 'uv');
   const bounds = (await canvas.boundingBox())!;
@@ -152,7 +166,7 @@ test('10-degree CMF overlay leaves its blue peak inside the plot', async ({
   page,
 }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });
-  await page.goto('/?view=spectrum&fig=cmf');
+  await page.goto('/?fig=cmf');
   const canvas = page.locator('.figure-host canvas');
   await expect(canvas).toHaveAttribute('data-painted', /\d+/);
   await page.locator('#lambda').fill('445');
@@ -188,7 +202,7 @@ test('10-degree CMF overlay leaves its blue peak inside the plot', async ({
 test('quantization steps depend on code range, not the displayed signal interval', async ({
   page,
 }) => {
-  await page.goto('/?view=pixels&fig=bit-depth');
+  await page.goto('/?fig=bit-depth');
   const cells = page.locator('.readout-grid > span');
   for (const range of [
     { name: 'Full range', steps: ['0.392%', '0.098%'] },
@@ -206,9 +220,9 @@ test('quantization steps depend on code range, not the displayed signal interval
 test('figure links restore the selected figure and state buttons move the lattice', async ({
   page,
 }) => {
-  await page.goto('/?view=transform&fig=rgc');
+  await page.goto('/?fig=rgc');
   await expect(page.locator('.figure-heading h1')).toHaveText(
-    '22. ACES Reference Gamut Compression',
+    'ACES Reference Gamut Compression',
   );
   const canvas = page.locator('.figure-host canvas');
   // Figures open on the completed transform.
@@ -232,7 +246,7 @@ test('figure links restore the selected figure and state buttons move the lattic
 });
 test('interactive figure controls change the drawing', async ({ page }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });
-  await page.goto('/?view=spectrum&fig=metamerism');
+  await page.goto('/?fig=metamerism');
   await expect(page.locator('.figure-readout')).toContainText('ΔE2000 = 0.0');
   await page.getByRole('button', { name: 'A 白炽灯' }).click();
   await expect(page.locator('.figure-host canvas')).toHaveAttribute(
@@ -242,7 +256,7 @@ test('interactive figure controls change the drawing', async ({ page }) => {
   const delta = await page.locator('.figure-readout').innerText();
   expect(Number(/ΔE2000 = ([\d.]+)/.exec(delta)![1])).toBeGreaterThan(1);
 
-  await page.goto('/?view=pixels&fig=subsampling');
+  await page.goto('/?fig=subsampling');
   await page.getByRole('button', { name: '4:2:2', exact: true }).click();
   await expect(page.locator('.figure-host canvas')).toHaveAttribute(
     'data-scheme',
@@ -253,16 +267,17 @@ test('interactive figure controls change the drawing', async ({ page }) => {
 
 test('every volume figure applies its configuration', async ({ page }) => {
   const errors = collectErrors(page);
-  await page.goto('/');
   for (const figure of volumeFigures) {
-    await page.locator(`[data-figure="${figure.id}"]`).click();
+    await page.goto(`/?fig=${figure.id}`);
     await expect(page.locator('canvas').last()).toHaveAttribute(
       'data-model',
       figure.state.target,
     );
-    await expect(page.locator(`[data-figure="${figure.id}"]`)).toHaveAttribute(
-      'aria-pressed',
-      'true',
+    await expect(
+      page.locator(`.figure-link[data-figure="${figure.id}"]`),
+    ).toHaveAttribute('aria-current', 'true');
+    await expect(page.locator('.figure-heading h1')).toHaveText(
+      figureTitle(figure.id),
     );
     await expect(page.locator('.figure-highlight')).toHaveText(
       figure.highlight,
@@ -271,25 +286,25 @@ test('every volume figure applies its configuration', async ({ page }) => {
       await expect(page.locator('.volume-heading').first()).toContainText(
         '对照：',
       );
-    if (figure.state.overlayOptimal || figure.state.gradient)
+    if (figure.state.overlayOptimal || figure.state.overlayPointer)
       await expect(page.locator('.overlay-legend')).toBeVisible();
   }
   expect(errors).toEqual([]);
   // Overlays survive a shared URL.
-  await page.locator('[data-figure="gradient"]').click();
+  await openAdvanced(page);
   await page.getByRole('button', { name: '导出对比图' }).click();
   const link = page.locator('.export-feedback a[target="_blank"]');
   const href = (await link.getAttribute('href'))!;
   await page.goto(href);
-  await expect(page.locator('#gradient-pair')).toHaveValue('blue-yellow');
-  await expect(page.locator('.overlay-legend')).toContainText('Oklab 插值');
+  await expect(page.locator('#overlay-pointer')).toBeChecked();
+  await expect(page.locator('.overlay-legend')).toContainText('Pointer 色域');
 });
 
 test('AgX curves and lattice swatches share the sRGB display encoding', async ({
   page,
 }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });
-  await page.goto('/?view=curves&fig=tonemap');
+  await page.goto('/?fig=tonemap');
   await expect(
     page
       .locator('.curve-table span')
@@ -300,7 +315,7 @@ test('AgX curves and lattice swatches share the sRGB display encoding', async ({
     path: 'artifacts/fix-agx-curve.png',
     fullPage: true,
   });
-  await page.goto('/?view=transform&fig=agx');
+  await page.goto('/?fig=agx');
   // The first pair is the input/output swatch for scene grey 0.18.
   await expect(page.locator('.swatch-table i').nth(1)).toHaveCSS(
     'background-color',
@@ -312,7 +327,7 @@ test('RGB state labels and AP1 counts describe the current state', async ({
   page,
 }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });
-  await page.goto('/?view=transform&fig=rgc');
+  await page.goto('/?fig=rgc');
   const status = page.locator('.figure-stage-label');
   const canvas = page.locator('.figure-host canvas');
   const state = (name: string) =>
@@ -335,7 +350,7 @@ test('RGB state labels and AP1 counts describe the current state', async ({
       /R AP1、G AP1、B AP1/,
     );
   }
-  await page.locator('.figure-button[data-figure="aces"]').click();
+  await page.goto('/?fig=aces');
   await expect(page.locator('.figure-highlight')).toContainText(
     '最终趋向显示白',
   );
@@ -350,7 +365,7 @@ test('RGB transform figures follow one colour from input to output', async ({
   page,
 }) => {
   await page.emulateMedia({ reducedMotion: 'reduce' });
-  await page.goto('/?view=transform&fig=aces');
+  await page.goto('/?fig=aces');
   const canvas = page.locator('.figure-host canvas');
   const readout = page.locator('.figure-readout');
   // The first preset is tracked on entry: scene grey 0.18 sits at 0 EV.
@@ -371,61 +386,10 @@ test('RGB transform figures follow one colour from input to output', async ({
   await expect(red).toHaveAttribute('aria-pressed', 'false');
 });
 
-test('CVD figures expose linear coordinates and final simulation details', async ({
-  page,
-}) => {
-  await page.emulateMedia({ reducedMotion: 'reduce' });
-  await page.goto('/?view=transform&fig=protan');
-  for (const type of ['protan', 'deutan', 'tritan']) {
-    await page.locator(`.figure-button[data-figure="${type}"]`).click();
-    await expect(page.locator('.figure-conditions')).toContainText(
-      '线性 sRGB 坐标与均匀采样',
-    );
-    const canvas = page.locator('.figure-host canvas');
-    await expect(canvas).toHaveAttribute(
-      'aria-description',
-      /R lin、G lin、B lin/,
-    );
-    await page.getByRole('button', { name: '输入', exact: true }).click();
-    await expect(page.locator('.figure-stage-label')).toHaveText(
-      '输入：线性 sRGB 立方体',
-    );
-    await page.getByRole('button', { name: '输出', exact: true }).click();
-    await expect(page.locator('.figure-stage-label')).toHaveText(
-      '输出：Machado 模拟（线性 sRGB 坐标）',
-    );
-    await expect(page.locator('.figure-readout')).toContainText('最终模拟矩阵');
-    await expect(page.locator('.figure-readout')).toContainText('最小奇异方向');
-    if (type !== 'tritan')
-      await expect(page.locator('.figure-readout')).toContainText('近似秩 2');
-    const before = await canvas.getAttribute('data-camera');
-    await canvas.press('ArrowRight');
-    await expect(canvas).not.toHaveAttribute('data-camera', before!);
-    await page.screenshot({
-      path: `artifacts/fix-rgb-${type}-linear.png`,
-      fullPage: true,
-    });
-  }
-  await page.setViewportSize({ width: 390, height: 844 });
-  await page.getByRole('combobox', { name: '选择图例' }).selectOption('protan');
-  await expect(page.locator('.figure-stage-label')).toHaveText(
-    '输出：Machado 模拟（线性 sRGB 坐标）',
-  );
-  expect(
-    await page.evaluate(
-      () => document.documentElement.scrollWidth <= window.innerWidth,
-    ),
-  ).toBe(true);
-  await page.screenshot({
-    path: 'artifacts/fix-rgb-protan-mobile.png',
-    fullPage: true,
-  });
-});
-
 test('Bayer figure displays reconstruction and PSNR in the documented domain', async ({
   page,
 }) => {
-  await page.goto('/?view=pixels&fig=bayer');
+  await page.goto('/?fig=bayer');
   await expect(page.locator('.figure-readout')).toContainText(
     'PSNR（sRGB 编码域）12.9 dB',
   );
@@ -445,7 +409,8 @@ test('Bayer figure displays reconstruction and PSNR in the documented domain', a
 test('exported PNG labels match comparison and common plotting models', async ({
   page,
 }) => {
-  await page.goto('/');
+  await page.goto('/?fig=luv-lab');
+  await openAdvanced(page);
   for (const scenario of [
     {
       figure: 'luv-lab',
@@ -469,7 +434,9 @@ test('exported PNG labels match comparison and common plotting models', async ({
       rightPlot: 'CIE XYZ · D65',
     },
   ]) {
-    await page.locator(`[data-figure="${scenario.figure}"]`).click();
+    await page
+      .locator(`.figure-link[data-figure="${scenario.figure}"]`)
+      .click();
     await page.getByLabel('绘图空间').selectOption(scenario.plot);
     const download = page.waitForEvent('download');
     await page.getByRole('button', { name: '导出对比图' }).click();
@@ -520,8 +487,11 @@ for (const width of [390, 768]) {
     page,
   }) => {
     await page.setViewportSize({ width, height: 844 });
-    for (const view of Object.keys(pages)) {
-      await page.goto(`/?view=${view}`);
+    for (const stage of stages) {
+      const first = catalogue.find(
+        (entry) => entry.stage === stage.id && entry.module !== 'volume',
+      )!;
+      await page.goto(`/?fig=${first.id}`);
       await expect(page.locator('.figure-host canvas').first()).toHaveAttribute(
         'data-painted',
         /\d+/,
@@ -532,15 +502,15 @@ for (const width of [390, 768]) {
         ),
       ).toBe(true);
     }
-    await page.goto('/?view=curves');
+    await page.goto('/?fig=bayer');
     if (width > 640) {
-      await page.locator('.figure-button[data-figure="hd"]').click();
+      await page.locator('.figure-link[data-figure="hd"]').click();
     } else {
-      await expect(page.locator('.figure-button').first()).toBeHidden();
+      await expect(page.locator('.figure-link').first()).toBeHidden();
       await page.locator('.figure-mobile').selectOption('hd');
     }
     await expect(page.locator('.figure-heading h1')).toHaveText(
-      '35. 胶片特性曲线（H&D）',
+      '胶片特性曲线（H&D）',
     );
   });
 }
@@ -548,13 +518,14 @@ for (const width of [390, 768]) {
 test('compare select follows the plot space after leaving a Look', async ({
   page,
 }) => {
-  await page.goto('/');
+  await page.goto('/?fig=oklab');
+  await openAdvanced(page);
   const compare = page.locator('#compare');
   await expect(compare).toBeEnabled();
-  await page.locator('[data-target="stages"]').click();
+  await page.locator('#target').selectOption('stages');
   await expect(compare).toBeDisabled();
   // The plot stays in a common space after returning to a standard target.
-  await page.locator('[data-target="oklab"]').click();
+  await page.locator('#target').selectOption('oklab');
   await expect(page.locator('#plot')).not.toHaveValue('native');
   await expect(compare).toBeDisabled();
   await page.locator('#plot').selectOption('native');
@@ -564,8 +535,8 @@ test('compare select follows the plot space after leaving a Look', async ({
 test('a comparison model does not change the source → target morph', async ({
   page,
 }) => {
-  await page.goto('/');
-  await page.locator('[data-figure="luv-lab"]').click();
+  await page.goto('/?fig=luv-lab');
+  await openAdvanced(page);
   await page.locator('#strength').fill('0');
   await page.locator('#vectors').check({ force: true });
   const right = page.locator('canvas').last();
@@ -584,13 +555,15 @@ test('a comparison model does not change the source → target morph', async ({
 test('wide-gamut figures pin the density their captions quote', async ({
   page,
 }) => {
-  await page.goto('/');
+  await page.goto('/?fig=oklab');
+  await openAdvanced(page);
   await page.locator('#density').selectOption('13');
   await expect(page.locator('canvas').last()).toHaveAttribute(
     'data-points',
     '2197',
   );
-  await page.locator('[data-figure="ap1"]').click();
+  const ap1 = page.locator('.figure-link[data-figure="ap1"]');
+  await ap1.click();
   await expect(page.locator('#density')).toHaveValue('9');
   await expect(page.locator('canvas').last()).toHaveAttribute(
     'data-points',
@@ -599,22 +572,24 @@ test('wide-gamut figures pin the density their captions quote', async ({
   await expect(page.locator('.figure-highlight')).toContainText('255 / 729');
   // Changing the density afterwards drops the figure's caption.
   await page.locator('#density').selectOption('5');
-  await expect(page.locator('[data-figure="ap1"]')).toHaveAttribute(
-    'aria-pressed',
-    'false',
-  );
+  await expect(ap1).not.toHaveAttribute('aria-current', 'true');
   await expect(page.locator('.figure-highlight')).not.toContainText('/ 729');
 });
 
 test('the mobile figure select mirrors the active figure', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto('/');
-  const select = page.locator('.mobile-figure');
+  await page.goto('/?fig=oklab');
+  const select = page.locator('.figure-mobile');
   await expect(select).toHaveValue('oklab');
   await select.selectOption('dwg');
   await expect(page.locator('#source')).toHaveValue('dwg-linear');
-  await page.getByRole('button', { name: '全部重置' }).click();
-  await expect(select).toHaveValue('oklab');
+  // A custom setting leaves the curated figure; 恢复默认 returns to it.
+  await openAdvanced(page);
+  await page.locator('#source').selectOption('srgb');
+  await expect(select).toHaveValue('');
+  await page.getByRole('button', { name: '恢复默认' }).click();
+  await expect(select).toHaveValue('dwg');
+  await expect(page.locator('#source')).toHaveValue('dwg-linear');
 });
 
 test('a stalled figure module cannot replace the failure screen', async ({
@@ -627,8 +602,8 @@ test('a stalled figure module cannot replace the failure screen', async ({
     await new Promise((resolve) => setTimeout(resolve, 13000));
     await route.continue();
   });
-  await page.goto('/?view=spectrum', { waitUntil: 'commit' });
-  await expect(page.getByRole('alert')).toContainText('工作台未能加载', {
+  await page.goto('/?fig=cmf', { waitUntil: 'commit' });
+  await expect(page.getByRole('alert')).toContainText('页面未能加载', {
     timeout: 15000,
   });
   // Let the late module resolve; the failure screen must stay in place.
@@ -637,48 +612,33 @@ test('a stalled figure module cannot replace the failure screen', async ({
   await expect(page.locator('.figure-page')).toHaveCount(0);
 });
 
-test('search, stepping and focus mode work across tabs', async ({ page }) => {
-  await page.goto('/?view=spectrum');
-  // Search covers every tab and opens the chosen figure.
-  await page.getByRole('button', { name: '搜索图例' }).click();
-  await expect(page.locator('.figure-result')).toHaveCount(38);
-  await page.getByRole('combobox', { name: '搜索全部图例' }).fill('h&d');
-  await expect(page.locator('.figure-result')).toHaveCount(1);
-  await page.keyboard.press('Enter');
-  await expect(page.locator('.figure-heading h1')).toHaveText(
-    '35. 胶片特性曲线（H&D）',
-  );
-  // ] continues into the next tab, [ returns to the last figure of the previous one.
-  await page.keyboard.press(']');
-  await expect(page).toHaveURL(/view=pixels/);
-  await expect(page.locator('.figure-heading h1')).toHaveText('36. 色度抽样');
-  await page.keyboard.press('[');
-  await expect(page.locator('.figure-heading h1')).toHaveText(
-    '35. 胶片特性曲线（H&D）',
-  );
-  await page.getByRole('button', { name: '上一张（[）' }).click();
+test('history follows the figure list across both kinds of page', async ({
+  page,
+}) => {
+  await page.goto('/?fig=transfer');
+  await page.locator('.figure-link[data-figure="tonemap"]').click();
   await expect(page).toHaveURL(/fig=tonemap/);
-  await page.goBack();
-  await expect(page).toHaveURL(/fig=hd/);
-  // Focus mode hides both side panels and survives a tab change.
-  await page.keyboard.press('f');
-  await expect(page.locator('.target-sidebar')).toBeHidden();
-  await expect(page.locator('.figure-inspector')).toBeHidden();
-  await page.goto('/?fig=ycbcr');
-  await expect(page.locator('.inspector')).toBeHidden();
-  await page.keyboard.press('Escape');
-  await expect(page.locator('[data-figure="ycbcr"]')).toHaveAttribute(
-    'aria-pressed',
-    'true',
-  );
+  // A volume figure is drawn by the workbench: the link navigates.
+  await page.locator('.figure-link[data-figure="ycbcr"]').click();
   await expect(page.locator('canvas').last()).toHaveAttribute(
     'data-model',
     'ycbcr709',
   );
+  await page.locator('.figure-link[data-figure="zcam"]').click();
+  await expect(page).toHaveURL(/fig=zcam/);
+  await page.goBack();
+  await expect(page.locator('canvas').last()).toHaveAttribute(
+    'data-model',
+    'ycbcr709',
+  );
+  await page.goBack();
+  await expect(page.locator('.figure-heading h1')).toHaveText('色调映射曲线');
+  await page.goBack();
+  await expect(page.locator('.figure-heading h1')).toHaveText('传递函数');
 });
 
 test('Display P3 canvases draw beyond sRGB and say so', async ({ page }) => {
-  await page.goto('/?view=chromaticity&display=p3');
+  await page.goto('/?fig=cie1931&display=p3');
   const canvas = page.locator('.figure-host canvas');
   // Browsers without Display P3 canvases keep the sRGB path, which every other test covers.
   test.skip(
@@ -717,13 +677,10 @@ test('Display P3 canvases draw beyond sRGB and say so', async ({ page }) => {
     'data-display',
     'p3',
   );
-  await expect(page.locator('.lab-status')).toContainText(
+  await expect(page.locator('.model-status')).toContainText(
     '个目标点超出 Display P3 显示范围',
   );
   // The pinned sRGB choice still applies without the override.
-  await page.goto('/?view=chromaticity');
+  await page.goto('/?fig=cie1931');
   await expect(canvas).toHaveAttribute('data-display', 'srgb');
-  await expect(
-    page.getByRole('button', { name: /画布显示域：sRGB/ }),
-  ).toBeVisible();
 });

@@ -4,13 +4,17 @@ import { colorTargets } from '../../src/targets';
 import { defaultState } from '../../src/model';
 import { stateUrl } from '../../src/state';
 
+/** Open the workbench on its signature figure, with the 高级 drawer open. */
 async function ready(page: Page) {
-  await page.goto('/');
+  await page.goto('/?fig=oklab');
   await expect(page.locator('canvas').first()).toHaveAttribute(
     'data-points',
     '729',
   );
+  await openAdvanced(page);
 }
+const openAdvanced = (page: Page) =>
+  page.locator('.advanced > summary').click();
 async function image(page: Page, index: number) {
   return page
     .locator('canvas')
@@ -29,13 +33,12 @@ test('renders just the workbench and all available target models', async ({
   await ready(page);
   await expect(page.locator('header')).toHaveCount(0);
   await expect(page.locator('.hero,.guide,.presets')).toHaveCount(0);
-  // Guidance: one reading line above the canvases, operations numbered in order.
+  // Guidance: one reading line above the canvases.
   await expect(page.locator('.figure-reading')).toContainText(
     '源画布是 sRGB 的 9×9×9 均匀采样点阵',
   );
-  await expect(page.locator('.step-badge:visible')).toHaveCount(4);
   for (const target of colorTargets) {
-    await page.locator(`[data-target="${target.id}"]`).click();
+    await page.locator('#target').selectOption(target.id);
     await expect(page.locator('canvas').last()).toHaveAttribute(
       'data-model',
       target.id,
@@ -53,7 +56,7 @@ test('renders just the workbench and all available target models', async ({
     );
   }
   expect(errors).toEqual([]);
-  await page.locator('[data-target="oklab"]').click();
+  await page.locator('#target').selectOption('oklab');
   await expect(page.locator('canvas').last()).toHaveAttribute(
     'data-model',
     'oklab',
@@ -96,11 +99,11 @@ test('sRGB identity matches pixels; Oklab changes geometry and reports exact coo
 }) => {
   await ready(page);
   await expect(page.locator('#coordinate-values')).toContainText('0.6280');
-  await page.locator('[data-target="srgb"]').click();
+  await page.locator('#target').selectOption('srgb');
   await expect
     .poll(async () => (await image(page, 0)) === (await image(page, 1)))
     .toBe(true);
-  await page.locator('[data-target="oklab"]').click();
+  await page.locator('#target').selectOption('oklab');
   await expect
     .poll(async () => (await image(page, 0)) !== (await image(page, 1)))
     .toBe(true);
@@ -118,7 +121,7 @@ test('custom stages alter output, bypass and zero strength restore it', async ({
   page,
 }) => {
   await ready(page);
-  await page.locator('[data-target="stages"]').click();
+  await page.locator('#target').selectOption('stages');
   await changeRange(page, 'param-redGreen', '1.7');
   await expect
     .poll(async () => (await image(page, 0)) !== (await image(page, 1)))
@@ -143,7 +146,7 @@ test('LUT loading has empty, error and successful target states', async ({
   page,
 }) => {
   await ready(page);
-  await page.locator('[data-target="lut"]').click();
+  await page.locator('#target').selectOption('lut');
   await page
     .getByLabel('LUT 输入色域', { exact: true })
     .selectOption('srgb-linear');
@@ -204,16 +207,17 @@ test('preview automatically presents the paired volumes without a device shell',
 });
 test('can run inside a cross-origin iframe', async ({ page }) => {
   await page.goto('/');
-  const source = new URL('/?embed=1', page.url());
+  const source = new URL('/?fig=oklab&embed=1', page.url());
   source.hostname = source.hostname === 'localhost' ? '127.0.0.1' : 'localhost';
   await page.setContent(
     `<iframe title="外部嵌入" src="${source.href}" width="1000" height="800"></iframe>`,
   );
   const frame = page.frameLocator('iframe');
   await expect(
-    frame.getByRole('heading', { name: '色体积工作台' }),
+    frame.getByRole('heading', { name: 'sRGB 在 Oklab 中' }),
   ).toBeVisible();
-  await frame.locator('[data-target="lab"]').click();
+  await frame.locator('.advanced > summary').click();
+  await frame.locator('#target').selectOption('lab');
   await expect(
     frame.getByText('目标：CIELAB · D50', { exact: true }),
   ).toBeVisible();
@@ -232,6 +236,7 @@ test('mobile, reduced motion, parameter restore and malformed state recovery', a
     'data-points',
     '125',
   );
+  await openAdvanced(page);
   await page.getByLabel('目标模型', { exact: true }).selectOption('oklab');
   await expect(page.getByRole('button', { name: '自动旋转' })).toHaveAttribute(
     'aria-pressed',
@@ -278,7 +283,7 @@ test('source selection resamples colors, coordinates, display and URL state', as
     path: 'artifacts/source-desktop.png',
     fullPage: true,
   });
-  await page.locator('[data-target="p3"]').click();
+  await page.locator('#target').selectOption('p3');
   await expect
     .poll(async () => (await image(page, 0)) === (await image(page, 1)))
     .toBe(true);
@@ -298,7 +303,8 @@ test('source selection resamples colors, coordinates, display and URL state', as
   await page.goto(stateUrl(state, test.info().project.use.baseURL!));
   await expect(page.getByLabel('源色彩空间')).toHaveValue('rec2020');
   await expect(page.getByText('源：Rec.2020', { exact: true })).toBeVisible();
-  await page.getByRole('button', { name: '全部重置', exact: true }).click();
+  await openAdvanced(page);
+  await page.getByRole('button', { name: '恢复默认', exact: true }).click();
   await expect(page.getByLabel('源色彩空间')).toHaveValue('srgb');
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByLabel('源色彩空间').selectOption('prophoto');
@@ -318,7 +324,7 @@ test('LUT requires explicit contracts and uses matching plot coordinates', async
   page,
 }) => {
   await ready(page);
-  await page.locator('[data-target="lut"]').click();
+  await page.locator('#target').selectOption('lut');
   const fixture =
     'LUT_3D_SIZE 2\n0 0 0\n1 0 0\n0 1 0\n1 1 0\n0 0 1\n1 0 1\n0 1 1\n1 1 1';
   await page.locator('#lut-file').setInputFiles({
@@ -363,7 +369,7 @@ test('LUT requires explicit contracts and uses matching plot coordinates', async
     .toBe(true);
   await page.getByLabel('处理强度', { exact: true }).fill('1');
   await page.getByLabel('源色彩空间').selectOption('p3');
-  await expect(page.locator('.lab-status')).toContainText('DOMAIN');
+  await expect(page.locator('.model-status')).toContainText('DOMAIN');
   await page.screenshot({
     path: 'artifacts/lut-managed-desktop.png',
     fullPage: true,
@@ -404,7 +410,7 @@ test('LUT requires explicit contracts and uses matching plot coordinates', async
 for (const size of [33, 65] as const) {
   test(`imports and evaluates a full ${size}-point LUT`, async ({ page }) => {
     await ready(page);
-    await page.locator('[data-target="lut"]').click();
+    await page.locator('#target').selectOption('lut');
     for (const side of ['输入', '输出']) {
       await page
         .getByLabel(`LUT ${side}色域`, { exact: true })
@@ -479,7 +485,7 @@ test('scientific view exposes flat swatches, equal axes, interpolation and camer
     'background-color',
     'rgb(255, 0, 0)',
   );
-  await page.locator('[data-target="lut"]').click();
+  await page.locator('#target').selectOption('lut');
   await page.locator('#lut-file').setInputFiles({
     name: 'nonlinear.cube',
     mimeType: 'text/plain',

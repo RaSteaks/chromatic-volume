@@ -1,8 +1,6 @@
 import Color from 'colorjs.io';
 import { el } from '../dom';
 import { defaultState, type Vec3 } from '../model';
-import { MACHADO_2009, simulateCvd } from '../science/cvd';
-import { invert, multiply, type Mat3 } from '../science/linear';
 import { gamutCompress } from '../science/gamut-compress';
 import { acesFitted, agx } from '../science/tonemap';
 import '../targets';
@@ -47,8 +45,6 @@ interface LatticeSpec {
   readout?: (t: number, positions: Vec3[]) => string;
   /** Re-encode current positions when both endpoints share a physical RGB space. */
   display?: (position: Vec3, t: number) => Vec3 | undefined;
-  /** Static numeric details shown under the tracked point. */
-  details?: () => HTMLElement;
 }
 const fixed = (position: Vec3) => position.map((v) => v.toFixed(3));
 const reducedMotion = () =>
@@ -244,7 +240,6 @@ function latticeFigure(spec: LatticeSpec) {
       step('视角', stepNote('拖动旋转 · 方向键 · 加减号缩放')),
     );
     readout.append(status, trackInfo);
-    if (spec.details) readout.append(spec.details());
     track(tracked);
     return () => {
       cancelAnimationFrame(frame);
@@ -299,92 +294,6 @@ const primaries = [
   { label: '蓝', u: [0, 0, 1] as Vec3 },
   { label: '品红', u: [1, 0, 1] as Vec3 },
 ];
-const LUMA: Vec3 = [0.2126, 0.7152, 0.0722];
-const det3 = (m: number[][]) =>
-  m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1]) -
-  m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0]) +
-  m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0]);
-/** Right singular vector of the smallest singular value (inverse iteration on MᵀM), largest component = 1. */
-function collapsedDirection(m: Mat3) {
-  const mtm = [0, 1, 2].map((i) =>
-    [0, 1, 2].map(
-      (j) => m[0][i] * m[0][j] + m[1][i] * m[1][j] + m[2][i] * m[2][j],
-    ),
-  ) as Mat3;
-  // Regularize so a singular MᵀM can still be inverted; the eigenvectors do not change.
-  const inverse = invert(
-    mtm.map((row, i) => row.map((v, j) => v + (i === j ? 1e-9 : 0))) as Mat3,
-  );
-  let v: Vec3 = [1, 1, 1];
-  for (let k = 0; k < 60; k++) {
-    v = multiply(inverse, v);
-    const norm = Math.hypot(...v);
-    v = v.map((x) => x / norm) as Vec3;
-  }
-  const peak = v.reduce((a, b) => (Math.abs(b) > Math.abs(a) ? b : a));
-  return v.map((x) => x / peak);
-}
-function cvdDetails(type: 'protan' | 'deutan' | 'tritan') {
-  const m = MACHADO_2009[type];
-  const det = det3(m);
-  // Published six-decimal coefficients are nearly, rather than exactly, rank 2.
-  const nearSingular = Math.abs(det) < 1e-3;
-  const y = (rgb: Vec3) =>
-    multiply(m, rgb).reduce((sum, v, i) => sum + v * LUMA[i], 0);
-  const signed = (v: number) =>
-    `${v >= 0 ? '+' : '−'}${Math.abs(v).toFixed(3)}`;
-  return el(
-    'div',
-    { class: 'readout-list' },
-    el('strong', {}, '最终模拟矩阵 · 严重度 1.0'),
-    el(
-      'span',
-      {},
-      `det ${det.toExponential(3)}${nearSingular ? '（近似秩 2）' : ''}`,
-    ),
-    el(
-      'span',
-      {},
-      `最小奇异方向（线性 RGB）${collapsedDirection(m).map(signed).join(' ')}`,
-    ),
-    readoutTable(
-      ['原色相对亮度 Y', '输入', '最终模拟'],
-      (
-        [
-          ['R', [1, 0, 0]],
-          ['G', [0, 1, 0]],
-          ['B', [0, 0, 1]],
-        ] as [string, Vec3][]
-      ).map(([name, rgb], i) => [name, LUMA[i].toFixed(4), y(rgb).toFixed(4)]),
-    ),
-  );
-}
-function cvdFigure(type: 'protan' | 'deutan' | 'tritan'): LatticeSpec {
-  const simulated = (u: Vec3) => simulateCvd(u, type);
-  return {
-    // Leave room for out-of-range vertices and linear-axis labels on narrow canvases.
-    zoom: 0.72,
-    details: () => cvdDetails(type),
-    display: (position) => encode(position).map(clip) as Vec3,
-    keyframes: [
-      {
-        name: '输入：线性 sRGB 立方体',
-        short: '输入',
-        axes: ['R lin', 'G lin', 'B lin'],
-        position: (u) => u,
-        color: encode,
-      },
-      {
-        name: '输出：Machado 模拟（线性 sRGB 坐标）',
-        short: '输出',
-        axes: ['R lin', 'G lin', 'B lin'],
-        position: simulated,
-        color: (u) => encode(simulated(u)).map(clip) as Vec3,
-      },
-    ],
-    swatches: primaries,
-  };
-}
 
 // ACES RGC: S-Gamut3 linear lattice → AP1 coordinates → compressed.
 const toAp1 = (u: Vec3) =>
@@ -430,17 +339,12 @@ const rgcSpec: LatticeSpec = {
 export const transformLattices = {
   aces: toneFigure('ACES 拟合', acesFitted),
   agx: toneFigure('AgX', agx),
-  protan: cvdFigure('protan'),
-  deutan: cvdFigure('deutan'),
-  tritan: cvdFigure('tritan'),
   rgc: rgcSpec,
 };
 
 const figures: FigureDef[] = [
   {
     id: 'aces',
-    number: 17,
-    title: 'ACES 1.x 色调映射（Hill 拟合）',
     conditions:
       '每通道 0.18·2^[−6.5, +6.5] · AP1 近似矩阵 + 有理函数 · 输出 sRGB 编码',
     reading:
@@ -460,8 +364,6 @@ const figures: FigureDef[] = [
   },
   {
     id: 'agx',
-    number: 18,
-    title: 'AgX',
     conditions:
       'inset → log₂ [−12.47, +4.03] EV → 6 次多项式 → outset · sRGB 编码',
     reading:
@@ -480,67 +382,7 @@ const figures: FigureDef[] = [
     mount: latticeFigure(transformLattices.agx),
   },
   {
-    id: 'protan',
-    number: 19,
-    title: 'Protanopia',
-    conditions:
-      'Machado 2009 · 严重度 1.0 · 线性 sRGB 坐标与均匀采样 · 点色经 sRGB 编码',
-    reading:
-      '每个点是一个线性 sRGB 颜色，9×9×9 个均匀取样。输出状态把每个点画在模拟结果的线性 sRGB 坐标上，点色即模拟后的颜色；虚线框是坐标 0–1 的范围。白色连线标出被跟踪颜色从输入到输出的位移。',
-    grade: 'reference',
-    highlight:
-      '评估字幕、道具信号或画面中的红色标记时，可观察色彩区分与明暗区分是否同时减弱。此模型使红原色的相对亮度几乎减半，线性晶格接近平面；公布矩阵近似秩 2，舍入后仍有微小厚度。这里演示色样响应，未分析具体影片。',
-    provenance: {
-      data: 'Machado, Oliveira, Fernandes 2009 严重度 1.0 矩阵，已对照 Colour Science 0.4.4',
-      domain:
-        '线性 sRGB 中均匀采样并做矩阵相乘；位置保留线性值，点色与色样经 sRGB 编码后裁剪显示',
-      reference: 'Machado et al., IEEE TVCG 15(6), 2009',
-    },
-    mount: latticeFigure(transformLattices.protan),
-  },
-  {
-    id: 'deutan',
-    number: 20,
-    title: 'Deuteranopia',
-    conditions:
-      'Machado 2009 · 严重度 1.0 · 线性 sRGB 坐标与均匀采样 · 点色经 sRGB 编码',
-    reading:
-      '每个点是一个线性 sRGB 颜色，9×9×9 个均匀取样。输出状态把每个点画在模拟结果的线性 sRGB 坐标上，点色即模拟后的颜色；虚线框是坐标 0–1 的范围。白色连线标出被跟踪颜色从输入到输出的位移。',
-    grade: 'reference',
-    highlight:
-      '当画面的信息依赖红绿对比时，可与 Protanopia 对照观察哪些颜色趋于接近。这里线性晶格同样接近平面，但最小奇异方向含更多 G 分量，红原色的模拟相对亮度升高。右侧最终读数帮助区分颜色混淆与亮度变化。',
-    provenance: {
-      data: 'Machado 2009 严重度 1.0 矩阵，已对照 Colour Science 0.4.4',
-      domain:
-        '线性 sRGB 中均匀采样并做矩阵相乘；位置保留线性值，点色与色样经 sRGB 编码后裁剪显示',
-      reference: 'Machado et al., IEEE TVCG 15(6), 2009',
-    },
-    mount: latticeFigure(transformLattices.deutan),
-  },
-  {
-    id: 'tritan',
-    number: 21,
-    title: 'Tritanopia',
-    conditions:
-      'Machado 2009 · 严重度 1.0 · 线性 sRGB 坐标与均匀采样 · 点色经 sRGB 编码',
-    reading:
-      '每个点是一个线性 sRGB 颜色，9×9×9 个均匀取样。输出状态把每个点画在模拟结果的线性 sRGB 坐标上，点色即模拟后的颜色；虚线框是坐标 0–1 的范围。白色连线标出被跟踪颜色从输入到输出的位移。',
-    grade: 'reference',
-    highlight:
-      '对依靠蓝黄差异区分的字幕或图形，可用此图理解颜色分离减弱的方向。该 Machado 矩阵不奇异（det ≠ 0），线性晶格仍保留三维体积，最小奇异方向以 B 为主；它不是严格的二色视平面投影。',
-    provenance: {
-      data: 'Machado 2009 严重度 1.0 矩阵，已对照 Colour Science 0.4.4',
-      domain:
-        '线性 sRGB 中均匀采样并做矩阵相乘；位置保留线性值，点色与色样经 sRGB 编码后裁剪显示',
-      approximation: 'Machado 模型的 tritan 结果不是严格的二色视投影',
-      reference: 'Machado et al., IEEE TVCG 15(6), 2009',
-    },
-    mount: latticeFigure(transformLattices.tritan),
-  },
-  {
     id: 'rgc',
-    number: 22,
-    title: 'ACES Reference Gamut Compression',
     conditions:
       'S-Gamut3 → AP1 · 阈值 0.815 / 0.803 / 0.880 · 极限 1.147 / 1.264 / 1.312 · 幂 1.2',
     reading:
@@ -556,4 +398,4 @@ const figures: FigureDef[] = [
     mount: latticeFigure(transformLattices.rgc),
   },
 ];
-export const groups: FigureGroup[] = [{ name: 'RGB 变换', figures }];
+export const groups: FigureGroup[] = [{ figures }];

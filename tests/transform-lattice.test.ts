@@ -3,45 +3,6 @@ import { describe, expect, it } from 'vitest';
 import type { Vec3 } from '../src/model';
 import { createLattice } from '../src/figures/lattice';
 import { transformLattices } from '../src/figures/transform';
-import reference from './reference/figures.json' with { type: 'json' };
-
-describe('linear RGB CVD lattices', () => {
-  it.each(['protan', 'deutan', 'tritan'] as const)(
-    '%s plots linear matrix outputs and encodes only display colours',
-    (type) => {
-      const spec = transformLattices[type];
-      const samples: Vec3[] = [
-        [0.5, 0.5, 0.5],
-        [1, 0, 0],
-        [0, 1, 0],
-        [0, 0, 1],
-      ];
-      const lattice = createLattice(spec.keyframes, samples);
-      expect(lattice(0).positions).toEqual(samples);
-      expect(lattice(0).colors[0][0]).toBeCloseTo(0.7353569830524495, 12);
-      const output = lattice(1);
-      // Independent Colour Science reference columns are the primary outputs.
-      for (let primary = 0; primary < 3; primary++) {
-        output.positions[primary + 1].forEach((v, axis) =>
-          expect(v).toBeCloseTo(reference.machado[type][axis][primary], 12),
-        );
-      }
-      for (const t of [0, 0.5, 1]) {
-        const current = lattice(t);
-        expect(current.axes).toEqual(['R lin', 'G lin', 'B lin']);
-        current.positions.forEach((position) => {
-          const display = new Color('srgb-linear', position).to('srgb').coords;
-          spec.display!(position, t)!.forEach((v, axis) =>
-            expect(v).toBeCloseTo(
-              Math.min(Math.max(display[axis] ?? 0, 0), 1),
-              12,
-            ),
-          );
-        });
-      }
-    },
-  );
-});
 
 describe('geometric morph labels and current-frame readouts', () => {
   it('labels only endpoints as tone-map results and distinguishes coordinate domains', () => {

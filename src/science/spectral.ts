@@ -239,18 +239,3 @@ function solve3(m: number[][], b: number[]): number[] {
   }
   return a.map((row, i) => row[3] / row[i]);
 }
-
-/** Kubelka–Munk single-constant mixing of reflectance spectra. */
-export function kubelkaMunkMix(
-  reflectances: Spectrum[],
-  concentrations: number[],
-): Spectrum {
-  const total = concentrations.reduce((a, b) => a + b, 0) || 1;
-  return WAVELENGTHS.map((_, i) => {
-    const ks = reflectances.reduce((sum, r, k) => {
-      const R = Math.min(Math.max(r[i], 1e-4), 1);
-      return sum + (concentrations[k] / total) * ((1 - R) ** 2 / (2 * R));
-    }, 0);
-    return 1 + ks - Math.sqrt(ks * ks + 2 * ks);
-  });
-}

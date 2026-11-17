@@ -27,7 +27,6 @@ import {
   WAVELENGTHS,
   xyToUvPrime,
 } from '../science/spectral';
-import { mixing } from './mixing';
 import '../targets';
 import type { FigureContext, FigureDef, FigureGroup } from './page';
 import {
@@ -818,8 +817,6 @@ function cameraFigure({ host, controls, readout }: FigureContext) {
 const figures: FigureDef[] = [
   {
     id: 'cmf',
-    number: 26,
-    title: 'CIE 配色函数',
     conditions: 'CIE 1931 2° · 可叠加 CIE 1964 10° · 380–780 nm / 5 nm',
     reading:
       '三条曲线是标准观察者对各波长单色光的三刺激值 x̄、ȳ、z̄。竖直游标所在波长的数值、色度和色样显示在右侧。',
@@ -836,8 +833,6 @@ const figures: FigureDef[] = [
   },
   {
     id: 'rgb-cmf',
-    number: 27,
-    title: 'RGB 配色函数',
     conditions: 'Wright & Guild 1931 · 2° · 原色 700 / 546.1 / 435.8 nm',
     reading:
       '三条曲线是用 700 / 546.1 / 435.8 nm 三个原色匹配各波长单色光所需的量 r̄、ḡ、b̄；红色区域内数值为负。竖直游标所在波长的数值显示在右侧。',
@@ -853,8 +848,6 @@ const figures: FigureDef[] = [
   },
   {
     id: 'blackbody',
-    number: 28,
-    title: '黑体辐射',
     conditions: 'Planck · c₂ = 1.4388×10⁻² m·K · 560 nm 归一 · 2000–10000 K',
     reading:
       '亮色曲线是当前温度下黑体的光谱（560 nm 处归一为 1），淡色曲线是六个参考温度；小图里的点是该温度在 xy 色度图普朗克轨迹上的位置。',
@@ -871,8 +864,6 @@ const figures: FigureDef[] = [
   },
   {
     id: 'metamerism',
-    number: 29,
-    title: '同色异谱',
     conditions: 'D65 ↔ A · Bradford 适配到 D65 · ΔE2000',
     reading:
       '橙、青两条曲线是两个样本的反射率，灰色底是当前光源的光谱。右侧色样是两个样本在该光源下的颜色及其色差。',
@@ -888,8 +879,6 @@ const figures: FigureDef[] = [
   },
   {
     id: 'tm30',
-    number: 30,
-    title: 'TM-30 色矢量图',
     conditions: 'ANSI/IES TM-30-18 · 99 CES · CAM02-UCS · 16 色相区间',
     reading:
       '虚线圆是参考光源下 16 个色相区间的平均位置，红色折线是被测光源下的对应位置，白色线段连接同一区间的两个位置：向外表示饱和度升高，沿圆周表示色相偏移。',
@@ -907,8 +896,6 @@ const figures: FigureDef[] = [
   },
   {
     id: 'luther',
-    number: 31,
-    title: '相机灵敏度与 Luther 条件',
     conditions: 'NPL 实测灵敏度 · 对 x̄ȳz̄ 的最小二乘 3×3 拟合',
     reading:
       '上图是相机三个通道的实测光谱灵敏度。下图细实线是 CIE x̄ȳz̄，虚线是用一个 3×3 矩阵从相机灵敏度组合出的最佳近似；两者的差距即右侧的残差。',
@@ -924,23 +911,5 @@ const figures: FigureDef[] = [
     },
     mount: cameraFigure,
   },
-  {
-    id: 'mixing',
-    number: 32,
-    title: '加色混合与减色混合',
-    conditions: '高斯光谱 · 单常数 Kubelka–Munk · D65 · CIE 1931 2°',
-    reading:
-      '左图是两束光的光谱（虚线）及其相加结果（实线），右图是两种颜料的反射率及按 Kubelka–Munk 混合的结果；每张图下方的色样是两个成分和混合色。',
-    grade: 'illustrative',
-    highlight:
-      '布光叠加有色光与置景混合颜料，会得到不同的颜色路径。光谱相加时，混合色度落在两光的连线上；此处颜料模型混合 K/S，反射率非线性变化，路径偏离直线。光谱和颜料均为理想化样本，可用于理解差异，不能据此配制真实涂料。',
-    provenance: {
-      data: '理想化高斯光源与平滑反射率曲线，不对应真实颜料',
-      domain: '颜料在 D65 下积分；偏离距离在 xy 中计算',
-      approximation: '单常数 Kubelka–Munk，忽略表面反射（Saunderson 修正）',
-      reference: 'Kubelka & Munk 1931；Grassmann 1853',
-    },
-    mount: mixing,
-  },
 ];
-export const groups: FigureGroup[] = [{ name: '光谱', figures }];
+export const groups: FigureGroup[] = [{ figures }];

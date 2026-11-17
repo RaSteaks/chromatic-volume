@@ -1,6 +1,6 @@
 import './style.css';
 import { button, el } from './dom';
-import { figureViews, movedFigures } from './shell';
+import { requestedFigure } from './shell';
 
 const root = document.querySelector<HTMLDivElement>('#app')!;
 const path = location.pathname.replace(/\/+$/, '') || '/';
@@ -18,7 +18,7 @@ function showFailure() {
         height: 1000,
         alt: 'sRGB 与 Oklab 色体积对比',
       }),
-      el('h1', {}, preview ? '动态预览暂不可用' : '工作台未能加载'),
+      el('h1', {}, preview ? '动态预览暂不可用' : '页面未能加载'),
       el('p', {}, '请检查网络或浏览器的 Canvas 支持，然后重试。'),
       el(
         'div',
@@ -27,7 +27,7 @@ function showFailure() {
         el(
           'a',
           { href: '/', target: '_blank', rel: 'noopener', class: 'button' },
-          '独立打开工作台',
+          '在新窗口打开',
         ),
       ),
     ),
@@ -47,21 +47,16 @@ if (path === '/' || preview) {
       if (!timedOut) mountPreviewPage(root);
     } else {
       const params = new URLSearchParams(location.search);
-      const moved = movedFigures[params.get('fig') ?? ''];
-      if (moved && params.get('view') !== moved) {
-        params.set('view', moved);
-        history.replaceState(null, '', `${location.pathname}?${params}`);
-      }
-      const view = params.get('view');
-      const figureView = figureViews.find((id) => id === view);
-      if (figureView) {
-        // Both the page shell and the tab's figure modules load within the timeout.
+      // A shared workbench state (`?state=`) always opens the workbench.
+      const figure = params.has('state') ? null : requestedFigure(params);
+      if (figure && figure.module !== 'volume') {
+        // Both the page shell and the stage's figure modules load within the timeout.
         const { loadFigures, mountFigures } = await import('./figures/page');
-        const groups = await loadFigures(figureView);
-        if (!timedOut) mountFigures(figureView, groups);
+        const defs = await loadFigures(figure.stage);
+        if (!timedOut) mountFigures(figure.stage, figure.id, defs);
       } else {
         const { mountLab } = await import('./main');
-        if (!timedOut) mountLab();
+        if (!timedOut) mountLab(figure?.id ?? null);
       }
     }
   } catch {
@@ -76,7 +71,7 @@ if (path === '/' || preview) {
       'main',
       { class: 'not-found' },
       el('h1', {}, '页面未找到'),
-      el('a', { href: '/', class: 'button primary' }, '返回工作台'),
+      el('a', { href: '/', class: 'button primary' }, '返回首页'),
     ),
   );
 }

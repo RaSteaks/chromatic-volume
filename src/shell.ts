@@ -1,407 +1,282 @@
-import {
-  displayGamut,
-  displayName,
-  p3Available,
-  p3Screen,
-  setDisplayGamut,
-} from './display';
-import { button, el, icon } from './dom';
+import { el } from './dom';
 
-// Top-level figure categories. The colour volume workbench stays at "/".
-export const views = [
-  { id: 'volume', name: '色体积', href: '/', count: 16 },
-  { id: 'transform', name: 'RGB 变换', href: '/?view=transform', count: 6 },
+/**
+ * Where a figure's code lives: the colour-volume workbench (`volume`) or one
+ * of the figure modules. Two figures of the same module share one page; a
+ * figure of the other kind is a plain link.
+ */
+export type FigureModule =
+  'volume' | 'transform' | 'chromaticity' | 'spectrum' | 'curves' | 'pixels';
+export type PlotModule = Exclude<FigureModule, 'volume'>;
+export interface FigureEntry {
+  id: string;
+  title: string;
+  module: FigureModule;
+}
+export interface StageGroup {
+  name: string;
+  figures: FigureEntry[];
+}
+export interface Stage {
+  id: 'capture' | 'grade' | 'deliver';
+  name: string;
+  groups: StageGroup[];
+}
+export type StageId = Stage['id'];
+
+const f = (module: FigureModule, id: string, title: string): FigureEntry => ({
+  id,
+  title,
+  module,
+});
+
+/**
+ * The figure catalogue, in the order of a film pipeline. This is the only
+ * place figure titles are written; figure definitions are keyed by id.
+ */
+export const stages: Stage[] = [
   {
-    id: 'chromaticity',
-    name: '色度图',
-    href: '/?view=chromaticity',
-    count: 3,
+    id: 'capture',
+    name: '拍摄',
+    groups: [
+      {
+        name: '光源',
+        figures: [
+          f('spectrum', 'blackbody', '黑体辐射'),
+          f('spectrum', 'metamerism', '同色异谱'),
+          f('spectrum', 'tm30', 'TM-30 色矢量图'),
+        ],
+      },
+      {
+        name: '被摄物',
+        figures: [
+          f('volume', 'optimal', '最优色边界'),
+          f('volume', 'pointer', 'Pointer 色域'),
+        ],
+      },
+      {
+        name: '标准观察者',
+        figures: [
+          f('spectrum', 'cmf', 'CIE 配色函数'),
+          f('spectrum', 'rgb-cmf', 'RGB 配色函数'),
+        ],
+      },
+      {
+        name: '摄影机',
+        figures: [
+          f('spectrum', 'luther', '相机灵敏度与 Luther 条件'),
+          f('pixels', 'bayer', 'Bayer 阵列与去马赛克'),
+          f('volume', 'awg4', 'ARRI Wide Gamut 4'),
+          f('volume', 'sgamut3', 'S-Gamut3'),
+          f('curves', 'hd', '胶片特性曲线（H&D）'),
+        ],
+      },
+    ],
   },
-  { id: 'spectrum', name: '光谱', href: '/?view=spectrum', count: 7 },
-  { id: 'curves', name: '曲线', href: '/?view=curves', count: 3 },
-  { id: 'pixels', name: '采样与量化', href: '/?view=pixels', count: 3 },
-] as const;
-export type ViewId = (typeof views)[number]['id'];
-export type FigureViewId = Exclude<ViewId, 'volume'>;
-export const figureViews = views
-  .map((view) => view.id)
-  .filter((id): id is FigureViewId => id !== 'volume');
+  {
+    id: 'grade',
+    name: '调色',
+    groups: [
+      {
+        name: '工作色域',
+        figures: [
+          f('chromaticity', 'cie1931', 'CIE 色度图'),
+          f('volume', 'ap1', 'ACES AP1'),
+          f('volume', 'dwg', 'DaVinci Wide Gamut'),
+          f('transform', 'rgc', 'ACES Reference Gamut Compression'),
+        ],
+      },
+      {
+        name: '感知空间',
+        figures: [
+          f('volume', 'oklab', 'sRGB 在 Oklab 中'),
+          f('chromaticity', 'hue-lines', '等色相线：CIELAB 与 Oklab'),
+          f('volume', 'ipt', 'IPT 对照 Oklab'),
+          f('volume', 'luv-lab', 'CIELUV 对照 CIELAB'),
+          f('volume', 'lms', 'LMS 视锥响应'),
+          f('chromaticity', 'macadam', 'MacAdam 椭圆'),
+        ],
+      },
+      {
+        name: '调色器参数',
+        figures: [
+          f('volume', 'hsl-bicone', 'HSL 双六棱锥'),
+          f('volume', 'hsv-hexcone', 'HSV 六棱锥'),
+        ],
+      },
+    ],
+  },
+  {
+    id: 'deliver',
+    name: '交付',
+    groups: [
+      {
+        name: '显示变换',
+        figures: [
+          f('curves', 'tonemap', '色调映射曲线'),
+          f('transform', 'aces', 'ACES 1.x 色调映射（Hill 拟合）'),
+          f('transform', 'agx', 'AgX'),
+        ],
+      },
+      {
+        name: '编码与 HDR',
+        figures: [
+          f('curves', 'transfer', '传递函数'),
+          f('volume', 'jzazbz', 'Jzazbz：HDR 均匀空间'),
+          f('volume', 'zcam', 'ZCAM：HDR 色貌模型'),
+        ],
+      },
+      {
+        name: '视频信号',
+        figures: [
+          f('volume', 'ycbcr', 'Y′CbCr：亮度与色度分布'),
+          f('pixels', 'subsampling', '色度抽样'),
+          f('pixels', 'bit-depth', '位深与色带'),
+        ],
+      },
+    ],
+  },
+];
 
-/** Figures that changed tab; old `?view=…&fig=…` links follow them. */
-export const movedFigures: Record<string, FigureViewId> = {
-  mixing: 'spectrum',
+export const catalogue = stages.flatMap((stage) =>
+  stage.groups.flatMap((group) =>
+    group.figures.map((figure) => ({ ...figure, stage: stage.id })),
+  ),
+);
+export const findFigure = (id: string | null) =>
+  catalogue.find((figure) => figure.id === id);
+export const stageOf = (id: StageId) => stages.find((s) => s.id === id)!;
+export const figureTitle = (id: string) => findFigure(id)?.title ?? id;
+export const figureHref = (id: string) => `/?fig=${encodeURIComponent(id)}`;
+
+/** Old `?view=<tab>` links without a figure open that tab's first figure. */
+const legacyViews: Record<string, string> = {
+  volume: 'oklab',
+  transform: 'aces',
+  chromaticity: 'cie1931',
+  spectrum: 'cmf',
+  curves: 'transfer',
+  pixels: 'subsampling',
 };
+/** The figure an address asks for; unknown or removed figures fall back to the first. */
+export function requestedFigure(params: URLSearchParams) {
+  return (
+    findFigure(params.get('fig')) ??
+    findFigure(legacyViews[params.get('view') ?? '']) ??
+    catalogue[0]
+  );
+}
 
-export function viewTabs(current: ViewId) {
-  const nav = el(
+/** The three pipeline stages. Each opens on its first figure. */
+export function stageNav(current: StageId) {
+  return el(
     'nav',
-    { class: 'view-tabs', 'aria-label': '图类型' },
-    el(
-      'span',
-      { class: 'view-brand' },
-      icon('cube'),
-      el('span', {}, 'Chromatic Volume'),
+    { class: 'stage-nav', 'aria-label': '制作流程' },
+    ...stages.flatMap((stage, index) => [
+      index
+        ? el('span', { class: 'stage-arrow', 'aria-hidden': 'true' }, '→')
+        : null,
+      el(
+        'a',
+        {
+          href: figureHref(stage.groups[0].figures[0].id),
+          class: 'stage-tab',
+          'data-stage': stage.id,
+          ...(stage.id === current ? { 'aria-current': 'page' } : {}),
+        },
+        stage.name,
+      ),
+    ]),
+  );
+}
+
+/**
+ * The figures of one stage, as links. Figures the current page can show are
+ * selected in place through `onSelect`; the others navigate.
+ */
+export function figureNav(
+  stage: StageId,
+  local: (entry: FigureEntry) => boolean,
+  onSelect: (id: string) => void,
+) {
+  const groups = stageOf(stage).groups;
+  const list = el(
+    'nav',
+    { class: 'figure-list', 'aria-label': `${stageOf(stage).name}图例` },
+    ...groups.map((group) =>
+      el(
+        'div',
+        { class: 'figure-group' },
+        el('h3', {}, group.name),
+        ...group.figures.map((entry) => {
+          const link = el(
+            'a',
+            {
+              href: figureHref(entry.id),
+              class: 'figure-link',
+              'data-figure': entry.id,
+            },
+            entry.title,
+          );
+          link.addEventListener('click', (event) => {
+            if (!local(entry) || event.metaKey || event.ctrlKey) return;
+            event.preventDefault();
+            onSelect(entry.id);
+          });
+          return link;
+        }),
+      ),
     ),
-    el(
-      'div',
-      { class: 'view-tab-list' },
-      ...views.map((view) =>
-        el(
-          'a',
-          {
-            href: view.href,
-            class: 'view-tab',
-            'data-view': view.id,
-            ...(view.id === current ? { 'aria-current': 'page' } : {}),
-          },
-          view.name,
-          el(
-            'span',
-            { class: 'view-tab-count', 'aria-label': `${view.count} 张图` },
-            view.count,
-          ),
+  );
+  // On a phone the list becomes one native select.
+  const mobile = el(
+    'select',
+    { class: 'figure-mobile', 'aria-label': '选择图例' },
+    ...groups.map((group) =>
+      el(
+        'optgroup',
+        { label: group.name },
+        ...group.figures.map((entry) =>
+          el('option', { value: entry.id }, entry.title),
         ),
       ),
     ),
-    el(
-      'div',
-      { class: 'view-tools' },
-      searchButton(),
-      gamutToggle(),
-      button('专注模式（F）', toggleFocus, {
-        icon: 'expand',
-        iconOnly: true,
-        class: 'icon-button focus-toggle',
-      }),
-    ),
   );
-  installShortcuts();
-  // On a phone the tab bar scrolls sideways; keep the current tab in view.
-  // Scroll the list itself: scrollIntoView would also move a page that embeds the site.
-  requestAnimationFrame(() => {
-    const tab = nav.querySelector<HTMLElement>('[aria-current]');
-    const list = tab?.parentElement;
-    if (tab && list)
-      list.scrollLeft =
-        tab.offsetLeft -
-        list.offsetLeft -
-        (list.clientWidth - tab.offsetWidth) / 2;
+  mobile.addEventListener('change', () => {
+    const entry = findFigure(mobile.value)!;
+    if (local(entry)) onSelect(entry.id);
+    else location.assign(figureHref(entry.id));
   });
-  return nav;
-}
-
-/**
- * Which colour space the canvases draw in. Offered only where the browser can
- * draw Display P3; switching reloads, because every canvas is created in one space.
- */
-function gamutToggle() {
-  if (!p3Available) return null;
-  const next = displayGamut === 'p3' ? 'srgb' : 'p3';
-  const control = el(
-    'button',
-    {
-      type: 'button',
-      class: 'gamut-toggle',
-      'data-gamut': displayGamut,
-      'aria-label': `画布显示域：${displayName}，切换为 ${next === 'p3' ? 'Display P3' : 'sRGB'}`,
-      title:
-        `画布与色样按 ${displayName} 绘制，超出部分裁剪。点击切换为 ${next === 'p3' ? 'Display P3' : 'sRGB'}。` +
-        (displayGamut === 'p3' && !p3Screen
-          ? '当前显示器未报告 P3 色域，实际显示可能仍被压缩到 sRGB。'
-          : ''),
+  return {
+    list,
+    mobile,
+    /** Mark the current figure; null when the workbench shows a custom setup. */
+    mark(id: string | null) {
+      list.querySelectorAll<HTMLAnchorElement>('.figure-link').forEach((a) => {
+        if (a.dataset.figure === id) a.setAttribute('aria-current', 'true');
+        else a.removeAttribute('aria-current');
+      });
+      mobile.value = id ?? '';
     },
-    el('i', {}),
-    displayGamut === 'p3' ? 'P3' : 'sRGB',
-  );
-  control.addEventListener('click', () => setDisplayGamut(next));
-  return control;
+  };
 }
 
-/** A neighbouring tab's address; stepping backwards lands on its last figure. */
-export function neighbourHref(current: ViewId, direction: -1 | 1) {
-  const view = views[views.findIndex((v) => v.id === current) + direction];
-  if (!view) return null;
-  const url = new URL(view.href, location.origin);
-  if (direction < 0) url.searchParams.set('fig', 'last');
-  return url.pathname + url.search;
-}
-
-// ---------------------------------------------------------------- focus mode
-// Hides the figure list and the side panel so the drawing fills the frame.
-// Kept for the session, because switching tabs reloads the page.
-function focusStored() {
-  try {
-    return sessionStorage.getItem('focus') === '1';
-  } catch {
-    return false;
-  }
-}
-function applyFocus(on: boolean) {
-  document.documentElement.toggleAttribute('data-focus', on);
-  document
-    .querySelector('.focus-toggle')
-    ?.setAttribute('aria-pressed', String(on));
-  try {
-    sessionStorage.setItem('focus', on ? '1' : '0');
-  } catch {
-    // Storage can be unavailable (private mode, sandboxed embed); the mode still works.
-  }
-}
-function toggleFocus() {
-  applyFocus(!document.documentElement.hasAttribute('data-focus'));
-}
-
-// ------------------------------------------------------------ figure search
-interface Entry {
-  number: number;
-  title: string;
-  detail: string;
-  tab: string;
-  href: string;
-  text: string;
-}
-let entries: Promise<Entry[]> | null = null;
-/** Every figure of every tab. Loaded on first use: it pulls in all figure modules. */
-function catalogue() {
-  entries ??= (async () => {
-    const [{ volumeFigures }, { loadFigures }] = await Promise.all([
-      import('./volume-figures'),
-      import('./figures/page'),
-    ]);
-    const tabs = await Promise.all(
-      figureViews.map(async (id) => ({
-        id,
-        figures: (await loadFigures(id)).flatMap((group) => group.figures),
-      })),
-    );
-    const name = (id: ViewId) => views.find((view) => view.id === id)!.name;
-    const all = [
-      ...volumeFigures.map((figure, index) => ({
-        number: index + 1,
-        title: figure.title,
-        detail: figure.caption,
-        tab: name('volume'),
-        href: `/?fig=${figure.id}`,
-      })),
-      ...tabs.flatMap(({ id, figures }) =>
-        figures.map((figure) => ({
-          number: figure.number,
-          title: figure.title,
-          detail: figure.conditions,
-          tab: name(id),
-          href: `/?view=${id}&fig=${figure.id}`,
-        })),
-      ),
-    ];
-    return all.map((entry) => ({
-      ...entry,
-      text: `${entry.number} ${entry.title} ${entry.detail} ${entry.tab}`.toLowerCase(),
-    }));
-  })();
-  return entries;
-}
-/**
- * Turn 「tab name」 and 「figure title」 in a 看点 into links. Tab names resolve
- * at once; figure titles need the catalogue, which is only loaded if one is quoted.
- */
+/** Turn 「figure title」 or 「stage name」 in a 看点 into a link. */
 export function linkReferences(element: HTMLElement) {
-  const text = element.textContent ?? '';
-  const parts = text.split(/(「[^」]+」)/);
+  const parts = (element.textContent ?? '').split(/(「[^」]+」)/);
   if (parts.length < 2) return;
-  const build = (all: Entry[] = []) => {
-    let pending = false;
-    const nodes = parts.flatMap((part) => {
+  element.replaceChildren(
+    ...parts.flatMap((part) => {
       const name = /^「(.+)」$/.exec(part)?.[1];
-      if (!name) return [part];
-      const href =
-        views.find((view) => view.name === name)?.href ??
-        all.find((entry) => entry.title === name)?.href;
-      if (!href) {
-        pending = true;
-        return [part];
-      }
-      return ['「', el('a', { href, class: 'figure-reference' }, name), '」'];
-    });
-    element.replaceChildren(...nodes);
-    return pending;
-  };
-  if (build())
-    catalogue().then(
-      (all) => {
-        // The panel may have moved on to another figure meanwhile.
-        if (element.isConnected && element.textContent === text) build(all);
-      },
-      () => {},
-    );
-}
-const mac = /Mac|iPhone|iPad/.test(navigator.platform);
-function searchButton() {
-  const control = el(
-    'button',
-    { type: 'button', class: 'search-button', 'aria-label': '搜索图例' },
-    icon('search'),
-    el('span', {}, '搜索图例'),
-    el('kbd', {}, mac ? '⌘K' : 'Ctrl K'),
+      const id =
+        catalogue.find((entry) => entry.title === name)?.id ??
+        stages.find((stage) => stage.name === name)?.groups[0].figures[0].id;
+      if (!name || !id) return [part];
+      return [
+        '「',
+        el('a', { href: figureHref(id), class: 'figure-reference' }, name),
+        '」',
+      ];
+    }),
   );
-  control.addEventListener('click', openSearch);
-  return control;
-}
-let dialog: HTMLDialogElement | null = null;
-function openSearch() {
-  if (dialog?.open) return;
-  dialog?.remove();
-  const input = el('input', {
-    type: 'search',
-    role: 'combobox',
-    'aria-label': '搜索全部图例',
-    'aria-controls': 'figure-search-results',
-    'aria-expanded': 'true',
-    'aria-autocomplete': 'list',
-    placeholder: '编号、名称或条件，如 PQ、Bradford',
-    autocomplete: 'off',
-    spellcheck: 'false',
-  });
-  const results = el('div', { id: 'figure-search-results', role: 'listbox' });
-  const current = (dialog = el(
-    'dialog',
-    { class: 'figure-search', 'aria-label': '搜索全部图例' },
-    el('div', { class: 'figure-search-field' }, icon('search'), input),
-    results,
-    el(
-      'p',
-      { class: 'figure-search-hint' },
-      el('kbd', {}, '↑↓'),
-      '选择',
-      el('kbd', {}, 'Enter'),
-      '打开',
-      el('kbd', {}, '['),
-      el('kbd', {}, ']'),
-      '上一张 / 下一张',
-      el('kbd', {}, 'F'),
-      '专注模式',
-    ),
-  ));
-  let shown: Entry[] = [];
-  let active = 0;
-  const mark = () => {
-    [...results.children].forEach((row, index) =>
-      row.setAttribute('aria-selected', String(index === active)),
-    );
-    const row = results.children[active] as HTMLElement | undefined;
-    if (row) {
-      // Keep the active row visible without scrollIntoView, which can move an embedding page.
-      const top = row.offsetTop - results.offsetTop;
-      if (top < results.scrollTop) results.scrollTop = top;
-      else if (
-        top + row.offsetHeight >
-        results.scrollTop + results.clientHeight
-      )
-        results.scrollTop = top + row.offsetHeight - results.clientHeight;
-    }
-    if (row?.id) input.setAttribute('aria-activedescendant', row.id);
-    else input.removeAttribute('aria-activedescendant');
-  };
-  const render = (all: Entry[]) => {
-    const words = input.value.toLowerCase().split(/\s+/).filter(Boolean);
-    shown = all.filter((entry) => words.every((w) => entry.text.includes(w)));
-    active = 0;
-    results.replaceChildren(
-      ...(shown.length
-        ? shown.map((entry, index) =>
-            el(
-              'a',
-              {
-                href: entry.href,
-                role: 'option',
-                id: `figure-result-${index}`,
-                class: 'figure-result',
-              },
-              el('span', { class: 'mono' }, entry.number),
-              el('span', {}, el('strong', {}, entry.title), entry.detail),
-              el('span', { class: 'figure-result-tab' }, entry.tab),
-            ),
-          )
-        : [el('p', { class: 'figure-search-empty' }, '没有匹配的图例')]),
-    );
-    mark();
-  };
-  results.replaceChildren(
-    el('p', { class: 'figure-search-empty' }, '正在载入图例目录…'),
-  );
-  catalogue().then(
-    (all) => {
-      render(all);
-      input.addEventListener('input', () => render(all));
-    },
-    () => {
-      // Forget the failed load so reopening the search tries again.
-      entries = null;
-      results.replaceChildren(
-        el('p', { class: 'figure-search-empty' }, '图例目录载入失败，请重试。'),
-      );
-    },
-  );
-  input.addEventListener('keydown', (event) => {
-    if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-      event.preventDefault();
-      if (!shown.length) return;
-      active =
-        (active + (event.key === 'ArrowDown' ? 1 : -1) + shown.length) %
-        shown.length;
-      mark();
-    } else if (event.key === 'Enter' && shown[active]) {
-      event.preventDefault();
-      location.assign(shown[active].href);
-    }
-  });
-  // A click on the backdrop lands on the dialog element itself.
-  current.addEventListener('click', (event) => {
-    if (event.target === current) current.close();
-  });
-  current.addEventListener('close', () => current.remove());
-  document.body.append(current);
-  current.showModal();
-  input.focus();
-}
-
-// ----------------------------------------------------------------- shortcuts
-let step: ((direction: -1 | 1) => void) | null = null;
-/** The page's handler for [ and ]: previous / next figure. */
-export function onFigureStep(handler: (direction: -1 | 1) => void) {
-  step = handler;
-}
-let installed = false;
-function installShortcuts() {
-  if (installed) return;
-  installed = true;
-  if (focusStored()) applyFocus(true);
-  window.addEventListener('keydown', (event) => {
-    if (!event.key || event.isComposing) return;
-    if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
-      event.preventDefault();
-      openSearch();
-      return;
-    }
-    if (event.metaKey || event.ctrlKey || event.altKey || dialog?.open) return;
-    const target = event.target as HTMLElement | null;
-    const typing =
-      target instanceof HTMLTextAreaElement ||
-      target instanceof HTMLSelectElement ||
-      (target instanceof HTMLInputElement &&
-        !['range', 'checkbox', 'radio', 'file'].includes(target.type));
-    if (typing) return;
-    if (event.key === '/') {
-      event.preventDefault();
-      openSearch();
-    } else if (event.key === '[' || event.key === ']') {
-      step?.(event.key === '[' ? -1 : 1);
-    } else if (event.key.toLowerCase() === 'f') {
-      toggleFocus();
-    } else if (
-      event.key === 'Escape' &&
-      document.documentElement.hasAttribute('data-focus')
-    ) {
-      applyFocus(false);
-    }
-  });
 }

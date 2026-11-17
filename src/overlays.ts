@@ -1,4 +1,3 @@
-import Color from 'colorjs.io';
 import gamutData from './data/gamuts.json' with { type: 'json' };
 import type { Vec3 } from './model';
 import { optimalColourRings } from './science/spectral';
@@ -49,58 +48,4 @@ export function pointerOverlay(): Overlay {
     width: 1.1,
   };
   return pointer;
-}
-
-export const gradientPairs = [
-  { id: 'blue-yellow', name: '蓝 → 黄', from: [0, 0, 1], to: [1, 1, 0] },
-  { id: 'red-green', name: '红 → 绿', from: [1, 0, 0], to: [0, 1, 0] },
-  { id: 'blue-white', name: '蓝 → 白', from: [0, 0, 1], to: [1, 1, 1] },
-  { id: 'black-white', name: '黑 → 白', from: [0, 0, 0], to: [1, 1, 1] },
-] as const satisfies readonly {
-  id: string;
-  name: string;
-  from: Vec3;
-  to: Vec3;
-}[];
-export const gradientModes = [
-  { id: 'srgb', name: 'sRGB 编码值插值', color: '#f0a35e' },
-  { id: 'srgb-linear', name: '线性 RGB 插值', color: '#7fc8a9' },
-  { id: 'oklab', name: 'Oklab 插值', color: '#b6a0f4' },
-] as const;
-
-/** Interpolate a pair in the given space; returns D65 XYZ and sRGB display colours. */
-export function gradientPath(pairId: string, mode: string, steps = 24) {
-  const pair = gradientPairs.find((item) => item.id === pairId)!;
-  const from = new Color('srgb', [...pair.from]).to(mode);
-  const to = new Color('srgb', [...pair.to]).to(mode);
-  const xyz: Vec3[] = [],
-    srgb: Vec3[] = [];
-  for (let i = 0; i <= steps; i++) {
-    const t = i / steps;
-    const coords = from.coords.map(
-      (v, axis) => (v ?? 0) + ((to.coords[axis] ?? 0) - (v ?? 0)) * t,
-    ) as Vec3;
-    const color = new Color(mode, coords);
-    xyz.push(color.to('xyz-d65').coords.map((v) => v ?? 0) as Vec3);
-    srgb.push(color.to('srgb').coords.map((v) => v ?? 0) as Vec3);
-  }
-  return { xyz, srgb };
-}
-const gradientCache = new Map<string, Overlay[]>();
-export function gradientOverlays(pairId: string): Overlay[] {
-  const cached = gradientCache.get(pairId);
-  if (cached) return cached;
-  const overlays: Overlay[] = gradientModes.map((mode) => {
-    const path = gradientPath(pairId, mode.id);
-    return {
-      name: mode.name,
-      lines: [path.xyz],
-      closed: false,
-      color: mode.color,
-      width: 2,
-      dots: [path.srgb],
-    };
-  });
-  gradientCache.set(pairId, overlays);
-  return overlays;
 }

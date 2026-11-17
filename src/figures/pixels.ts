@@ -505,8 +505,6 @@ function bayer({ host, controls, readout }: FigureContext) {
 const figures: FigureDef[] = [
   {
     id: 'subsampling',
-    number: 36,
-    title: '色度抽样',
     conditions: 'BT.709 Y′CbCr（非恒定亮度）· 块平均 · 最近邻重建',
     reading:
       '四格是同一张 24×16 像素测试图：原图、按所选方式抽样后的重建、每个像素都保留的亮度 Y′、以及被相邻像素共用的色度 Cb/Cr（方框是一个共用块）。',
@@ -526,8 +524,6 @@ const figures: FigureDef[] = [
   },
   {
     id: 'bit-depth',
-    number: 37,
-    title: '位深与色带',
     conditions: '均匀量化 · 8 / 10-bit · Full / Legal range',
     reading:
       '两条灰阶是同一段信号分别按 8-bit 和 10-bit 量化的结果；下方阶梯图是这段信号最前面 8% 的码值，橙色为 8-bit，绿色为 10-bit，虚线为未量化的理想值。',
@@ -545,8 +541,6 @@ const figures: FigureDef[] = [
   },
   {
     id: 'bayer',
-    number: 38,
-    title: 'Bayer 阵列与去马赛克',
     conditions: 'RGGB · 线性光采样 · 双线性插值 · PSNR 在 sRGB 编码域',
     reading:
       '一张 28×18 像素的测试图，在四个阶段间切换：原图、每个像素只保留 R、G、B 之一的马赛克、插值重建的结果、重建与原图的误差（放大 4 倍）。',
@@ -564,4 +558,4 @@ const figures: FigureDef[] = [
     mount: bayer,
   },
 ];
-export const groups: FigureGroup[] = [{ name: '采样与量化', figures }];
+export const groups: FigureGroup[] = [{ figures }];

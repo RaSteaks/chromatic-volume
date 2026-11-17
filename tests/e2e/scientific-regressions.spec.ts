@@ -4,13 +4,14 @@ import { colorSources } from '../../src/targets';
 test('shared plots show target encoding loss instead of assuming color identity', async ({
   page,
 }) => {
-  await page.goto('/');
+  await page.goto('/?fig=oklab');
+  await page.locator('.advanced > summary').click();
   await page.getByLabel('源色彩空间').selectOption('p3');
-  await page.locator('[data-target="rec1886"]').click();
+  await page.locator('#target').selectOption('rec1886');
   await page.getByLabel('绘图空间').selectOption('xyz-d65');
   await expect(page.locator('#coordinate-values')).toContainText('1.0882');
   await expect(page.locator('#conversion-warning')).toBeVisible();
-  await expect(page.locator('.lab-status')).toContainText(
+  await expect(page.locator('.model-status')).toContainText(
     '点在目标转换中损失颜色',
   );
   const images = () =>
@@ -29,9 +30,9 @@ test('shared plots show target encoding loss instead of assuming color identity'
     path: 'artifacts/fix-color-loss.png',
     fullPage: true,
   });
-  await page.locator('[data-target="p3"]').click();
+  await page.locator('#target').selectOption('p3');
   await expect(page.locator('#conversion-warning')).toBeHidden();
-  await expect(page.locator('.lab-status')).toContainText(
+  await expect(page.locator('.model-status')).toContainText(
     '0 点在目标转换中损失颜色',
   );
   await expect
@@ -43,7 +44,7 @@ test('shared plots show target encoding loss instead of assuming color identity'
 
   // AP1 cannot encode every ProPhoto color with the normative ACEScc negative floor.
   await page.getByLabel('源色彩空间').selectOption('prophoto');
-  await page.locator('[data-target="acescc"]').click();
+  await page.locator('#target').selectOption('acescc');
   await page.getByLabel('采样点', { exact: true }).fill('41');
   await page.getByLabel('采样点', { exact: true }).press('Tab');
   await expect(page.locator('#conversion-warning')).toBeVisible();
@@ -58,9 +59,10 @@ test('shared plots show target encoding loss instead of assuming color identity'
 test('ACEScc shadow readout and neutral HSL/HSV hue use the corrected conversions', async ({
   page,
 }) => {
-  await page.goto('/');
+  await page.goto('/?fig=oklab');
+  await page.locator('.advanced > summary').click();
   await page.getByLabel('源色彩空间').selectOption('p3');
-  await page.locator('[data-target="acescc"]').click();
+  await page.locator('#target').selectOption('acescc');
   await page.getByLabel('采样密度').selectOption('13');
   await page.getByLabel('采样点', { exact: true }).fill('170');
   await page.getByLabel('采样点', { exact: true }).press('Tab');
@@ -74,7 +76,7 @@ test('ACEScc shadow readout and neutral HSL/HSV hue use the corrected conversion
   await page.getByLabel('采样点', { exact: true }).fill('365');
   await page.getByLabel('采样点', { exact: true }).press('Tab');
   for (const id of ['hsl', 'hsv']) {
-    await page.locator(`[data-target="${id}"]`).click();
+    await page.locator('#target').selectOption(id);
     await expect(page.locator('#coordinate-values dd').first()).toHaveText(
       '未定义',
     );
@@ -88,8 +90,9 @@ test('ACEScc shadow readout and neutral HSL/HSV hue use the corrected conversion
 test('zero-strength teaching stages keep all source spaces coincident', async ({
   page,
 }) => {
-  await page.goto('/');
-  await page.locator('[data-target="stages"]').click();
+  await page.goto('/?fig=oklab');
+  await page.locator('.advanced > summary').click();
+  await page.locator('#target').selectOption('stages');
   await expect(page.getByLabel('绘图空间')).toHaveValue('oklab');
   await expect(page.locator('#plot option[value="native"]')).toBeDisabled();
   await page.getByLabel('处理强度', { exact: true }).fill('0');
@@ -131,25 +134,26 @@ test('zero-strength teaching stages keep all source spaces coincident', async ({
 test('native and common plots expose numeric guides; export records its actual plot', async ({
   page,
 }) => {
-  await page.goto('/');
+  await page.goto('/?fig=oklab');
+  await page.locator('.advanced > summary').click();
   for (const [id, labels] of [
     ['lab', 'a* 100；L* 100；b* 100'],
     ['luv', 'u* 140；L* 100；v* 140'],
     ['oklch', 'C cos h 0.4；L 1；C sin h 0.4'],
     ['acescc', 'R 0.56；G 0.56；B 0.56'],
   ]) {
-    await page.locator(`[data-target="${id}"]`).click();
+    await page.locator('#target').selectOption(id);
     await expect(page.locator('canvas').last()).toHaveAttribute(
       'aria-description',
       new RegExp(labels.replaceAll('*', '\\*')),
     );
   }
-  await page.locator('[data-target="lab"]').click();
+  await page.locator('#target').selectOption('lab');
   await page.screenshot({
     path: 'artifacts/fix-native-lab.png',
     fullPage: true,
   });
-  await page.locator('[data-target="oklab"]').click();
+  await page.locator('#target').selectOption('oklab');
   await page.getByLabel('绘图空间').selectOption('xyz-d65');
   await page.getByLabel('严格等比例', { exact: true }).uncheck();
   await page.getByLabel('无光照点色', { exact: true }).uncheck();

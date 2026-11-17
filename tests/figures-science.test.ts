@@ -4,7 +4,6 @@ import '../src/targets';
 import reference from './reference/figures.json' with { type: 'json' };
 import type { Vec3 } from '../src/model';
 import { simulateBayer } from '../src/science/bayer';
-import { MACHADO_2009 } from '../src/science/cvd';
 import { gamutCompress, RGC } from '../src/science/gamut-compress';
 import { xyzToXy } from '../src/science/linear';
 import { codeValue } from '../src/figures/plot';
@@ -16,7 +15,6 @@ import {
   A_SPD,
   emissionToXYZ,
   isotherm,
-  kubelkaMunkMix,
   metamericPair,
   optimalColourRings,
   pulseXYZ,
@@ -193,17 +191,6 @@ describe('spectral colorimetry', () => {
       Math.max(...a[0].map((v, axis) => Math.abs(v - a[1][axis]))),
     ).toBeGreaterThan(0.005);
   });
-  it('Kubelka–Munk mixing keeps single pigments and darkens mixtures', () => {
-    const yellow = WAVELENGTHS.map((w) => (w > 500 ? 0.85 : 0.08));
-    const blue = WAVELENGTHS.map((w) => (w < 520 ? 0.8 : 0.06));
-    kubelkaMunkMix([yellow, blue], [1, 0]).forEach((v, i) =>
-      close(v, yellow[i], 1e-12),
-    );
-    const mix = kubelkaMunkMix([yellow, blue], [1, 1]);
-    mix.forEach((v, i) =>
-      expect(v).toBeLessThanOrEqual(Math.max(yellow[i], blue[i]) + 1e-12),
-    );
-  });
 });
 
 describe('transforms', () => {
@@ -240,12 +227,6 @@ describe('transforms', () => {
     );
     close(display.coords[0] ?? 0, 0.07011834416470161, 1e-12);
     expect(agx([0, 0, 0])).toEqual([0, 0, 0]);
-  });
-  it('Machado 2009 matrices match Colour Science', () => {
-    for (const type of ['protan', 'deutan', 'tritan'] as const)
-      MACHADO_2009[type].forEach((row, r) =>
-        row.forEach((v, c) => close(v, reference.machado[type][r][c], 1e-12)),
-      );
   });
   it('RGC preserves the zone of trust and maps the limit to the gamut boundary', () => {
     expect(gamutCompress([0.5, 0.4, 0.3])).toEqual([0.5, 0.4, 0.3]);

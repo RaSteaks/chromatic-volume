@@ -798,8 +798,6 @@ function hueLines({ host, controls, readout }: FigureContext) {
 const figures: FigureDef[] = [
   {
     id: 'cie1931',
-    number: 23,
-    title: 'CIE 色度图',
     conditions: 'CIE 1931 2° · u′v′ / xy · 原生白点，无适配',
     reading:
       '马蹄形边界是光谱轨迹，内部每个位置是一个色度；三角形是所选色域三个基色围成的范围。黑白双线为普朗克轨迹，蓝色虚线为日光轨迹，短横线为等色温线。',
@@ -817,8 +815,6 @@ const figures: FigureDef[] = [
   },
   {
     id: 'macadam',
-    number: 24,
-    title: 'MacAdam 椭圆',
     conditions: 'MacAdam 1942 · 观察者 PGN · 25 个椭圆 ×10 · xy ↔ u′v′',
     reading:
       '每个椭圆围住一个中心色度周围配色结果的离散范围（放大 10 倍），颜色取自中心色度；外圈白线是光谱轨迹。同一批椭圆可画在 xy 或 u′v′ 平面上。',
@@ -835,8 +831,6 @@ const figures: FigureDef[] = [
   },
   {
     id: 'hue-lines',
-    number: 25,
-    title: '等色相线：CIELAB 与 Oklab',
     conditions: 'CIELAB (D65) vs Oklab · 等 L、等 h · C 从 0 到 sRGB 原色',
     reading:
       '每条线是保持明度和色相角不变、把色度从 0（灰）增加到 sRGB 原色时经过的 xy 色度；虚线按 CIELAB 计算，实线按 Oklab 计算。下方两条色带是所选色相沿这两条线的实际颜色。',
@@ -854,4 +848,4 @@ const figures: FigureDef[] = [
     mount: hueLines,
   },
 ];
-export const groups: FigureGroup[] = [{ name: '色度图', figures }];
+export const groups: FigureGroup[] = [{ figures }];

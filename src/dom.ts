@@ -20,29 +20,14 @@ export function el<K extends keyof HTMLElementTagNameMap>(
   return element;
 }
 const paths = {
-  cube: 'M12 3 3 8v9l9 5 9-5V8L12 3ZM3 8l9 5 9-5M12 13v9M7.5 5.5l9 5',
-  arrow: 'M5 12h14m-5-5 5 5-5 5',
   reset: 'M3 10a9 9 0 1 1 2 8M3 4v6h6',
   code: 'm8 7-5 5 5 5m8-10 5 5-5 5M14 4l-4 16',
-  link: 'm10 13 4-4m-5 6-2 2a3.5 3.5 0 0 1-5-5l4-4a3.5 3.5 0 0 1 5 0m2 1 2-2a3.5 3.5 0 0 1 5 5l-4 4a3.5 3.5 0 0 1-5 0',
   up: 'm6 14 6-6 6 6',
   down: 'm6 10 6 6 6-6',
-  close: 'm6 6 12 12M6 18 18 6',
-  check: 'm5 12 4 4L19 6',
   download: 'M12 3v12m-5-5 5 5 5-5M4 16v5h16v-5',
-  monitor: 'M3 4h18v13H3ZM8 21h8m-4-4v4',
-  phone: 'M7 2h10v20H7ZM11 18h2',
-  tablet: 'M4 2h16v20H4ZM11 18h2',
-  external: 'M14 3h7v7m0-7L10 14M10 3H3v18h18v-7',
-  info: 'M12 11v6m0-11v1M22 12a10 10 0 1 1-20 0 10 10 0 0 1 20 0',
   play: 'm8 4 12 8-12 8V4Z',
   pause: 'M8 4v16M16 4v16',
   sliders: 'M4 5h16M4 12h16M4 19h16M8 2v6m8 1v6m-6 1v6',
-  rotate: 'M20 7a9 9 0 1 0 1 9M20 2v5h-5',
-  chevron: 'm9 5 7 7-7 7',
-  back: 'm15 5-7 7 7 7',
-  search: 'm21 21-4.3-4.3M11 18a7 7 0 1 1 0-14 7 7 0 0 1 0 14Z',
-  expand: 'M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5',
 };
 export type IconName = keyof typeof paths;
 export function icon(name: IconName): SVGSVGElement {

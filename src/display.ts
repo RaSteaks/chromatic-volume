@@ -28,14 +28,14 @@ function canvasSupportsP3() {
 }
 const browser = typeof document !== 'undefined';
 /** The browser can draw Display P3 canvases and CSS colours. */
-export const p3Available = browser && canvasSupportsP3();
+const p3Available = browser && canvasSupportsP3();
 /** The screen reports a gamut of at least P3. */
-export const p3Screen = browser && matchMedia('(color-gamut: p3)').matches;
+const p3Screen = browser && matchMedia('(color-gamut: p3)').matches;
 // `?display=srgb|p3` overrides the stored choice for one page load (cover generation, tests).
 const choice = browser
   ? (new URLSearchParams(location.search).get('display') ?? stored())
   : null;
-/** Fixed for the lifetime of the page; changing it reloads. */
+/** Follows the screen; fixed for the lifetime of the page. */
 export const displayGamut: DisplayGamut =
   p3Available && (choice === 'p3' || (choice !== 'srgb' && p3Screen))
     ? 'p3'
@@ -44,15 +44,6 @@ export const displayName = displayGamut === 'p3' ? 'Display P3' : 'sRGB';
 export const canvasSettings: CanvasRenderingContext2DSettings = {
   colorSpace: displayGamut === 'p3' ? 'display-p3' : 'srgb',
 };
-export function setDisplayGamut(gamut: DisplayGamut) {
-  try {
-    localStorage.setItem(KEY, gamut);
-  } catch {
-    // Without storage the choice cannot outlive the reload; nothing else to do.
-  }
-  location.reload();
-}
-
 // sRGB and Display P3 share the D65 white point and the sRGB transfer function,
 // so only the primaries differ. Linear sRGB ↔ linear Display P3 (IEC 61966-2-1, SMPTE EG 432-1).
 const TO_P3 = [

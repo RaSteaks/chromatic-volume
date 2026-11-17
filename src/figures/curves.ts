@@ -555,8 +555,6 @@ function hdCurve({ host, controls, readout }: FigureContext) {
 const figures: FigureDef[] = [
   {
     id: 'transfer',
-    number: 33,
-    title: '传递函数',
     conditions:
       '横轴 log₂(L / 漫反射白) · PQ 白 = 203 cd/m² · HLG 白 = 75% · Log 以 0.18 为中灰',
     reading:
@@ -600,15 +598,13 @@ const figures: FigureDef[] = [
   },
   {
     id: 'tonemap',
-    number: 34,
-    title: '色调映射曲线',
     conditions:
       '横轴 log₂(L / 0.18) · Reinhard、Hable、ACES 拟合、AgX · 输出 sRGB 编码',
     reading:
       '每条曲线是一种色调映射：横轴为相对 18% 中灰的场景曝光档数，纵轴为 sRGB 编码的显示值。图下方的灰阶条是各曲线在同一曝光范围内的实际输出。',
     grade: 'approximate',
     highlight:
-      '处理中灰、窗外高光或灯具亮部时，可用曲线观察显示对比如何分配。中灰落点影响整体亮度，斜率峰说明对比集中在哪段，肩部压缩高光差异。这里仅比较 R = G = B 的中性输入；饱和灯光的偏色与去饱和需结合「RGB 变换」晶格观察。',
+      '处理中灰、窗外高光或灯具亮部时，可用曲线观察显示对比如何分配。中灰落点影响整体亮度，斜率峰说明对比集中在哪段，肩部压缩高光差异。这里仅比较 R = G = B 的中性输入；饱和灯光的偏色与去饱和需结合「ACES 1.x 色调映射（Hill 拟合）」晶格观察。',
     provenance: {
       data: '各算子公开公式',
       domain: '单通道中性输入（R = G = B），输出为线性显示值后统一做 sRGB 编码',
@@ -642,8 +638,6 @@ const figures: FigureDef[] = [
   },
   {
     id: 'hd',
-    number: 35,
-    title: '胶片特性曲线（H&D）',
     conditions: '密度 D 对 log₁₀ H · 逻辑斯谛示意 · 片基灰雾 0.15',
     reading:
       '曲线是胶片密度随曝光量对数的变化；三段底色标出趾部、直线部和肩部，虚线切线的斜率是 γ，两条水平虚线是片基灰雾和最大密度。',
@@ -659,4 +653,4 @@ const figures: FigureDef[] = [
     mount: hdCurve,
   },
 ];
-export const groups: FigureGroup[] = [{ name: '曲线', figures }];
+export const groups: FigureGroup[] = [{ figures }];

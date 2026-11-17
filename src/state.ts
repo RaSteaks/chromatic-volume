@@ -1,6 +1,5 @@
 import { gamuts, transfers } from './color-management';
 import { colorSources, getTarget } from './targets';
-import { gradientPairs } from './overlays';
 import {
   clamp,
   defaultState,
@@ -149,15 +148,6 @@ export function decodeState(serialized: string): LabState | null {
     )
       return null;
     state.compare = parsed.compare;
-  }
-  if (parsed.gradient !== undefined) {
-    if (
-      typeof parsed.gradient !== 'string' ||
-      (parsed.gradient !== '' &&
-        !gradientPairs.some((pair) => pair.id === parsed.gradient))
-    )
-      return null;
-    state.gradient = parsed.gradient;
   }
   return state;
 }
