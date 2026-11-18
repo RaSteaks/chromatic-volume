@@ -50,6 +50,8 @@ export class VolumeView {
   private width = 0;
   private height = 0;
   private points: Projected[] = [];
+  /** Dot radius of the last frame in CSS px, for hit testing. */
+  private radius = 0;
   private pointer: { id: number; x: number; y: number; moved: boolean } | null =
     null;
   private observer: ResizeObserver;
@@ -101,15 +103,25 @@ export class VolumeView {
       if (!this.pointer || this.pointer.id !== event.pointerId) return;
       if (!this.pointer.moved) {
         const rect = canvas.getBoundingClientRect();
-        const point = [...this.points]
+        const x = event.clientX - rect.left,
+          y = event.clientY - rect.top;
+        const distance = (p: Projected) => Math.hypot(p.x - x, p.y - y);
+        // Points are drawn back to front, so the frontmost disc covering the
+        // pointer is the dot the user sees there.
+        let point = [...this.points]
           .reverse()
-          .find(
-            (p) =>
-              Math.hypot(
-                p.x - event.clientX + rect.left,
-                p.y - event.clientY + rect.top,
-              ) < 12,
-          );
+          .find((p) => distance(p) <= this.radius);
+        // Between dots (small dots, touch), take the nearest one within reach.
+        if (!point) {
+          let reach = 12;
+          for (const p of this.points) {
+            const d = distance(p);
+            if (d < reach) {
+              reach = d;
+              point = p;
+            }
+          }
+        }
         if (point) onPick(point.index);
       }
       this.pointer = null;
@@ -316,6 +328,7 @@ export class VolumeView {
       ) *
         this.state.pointSize *
         this.state.zoom;
+    this.radius = radius;
     // Cache shaded sprites. The cache is bounded across parameter drags and needs no GPU.
     if (this.sprites.size > 6000) this.sprites.clear();
     for (const p of this.points) {

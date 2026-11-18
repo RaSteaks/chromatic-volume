@@ -104,14 +104,11 @@ function latticeFigure(spec: LatticeSpec) {
             points: line.map((i) => positions[i]),
             color: '#ffffff20',
             width: 0.8,
-            segmentColors: line
-              .slice(1)
-              .map((i, k) => {
-                const a = colors[line[k]],
-                  b = colors[i];
-                return `${css(a.map((v, axis) => (v + b[axis]) / 2) as Vec3)}`;
-              })
-              .map((c) => c.replace('rgb(', 'rgba(').replace(')', ',0.55)')),
+            segmentColors: line.slice(1).map((i, k) => {
+              const a = colors[line[k]],
+                b = colors[i];
+              return css(a.map((v, axis) => (v + b[axis]) / 2) as Vec3, 0.55);
+            }),
           })),
           {
             points: path.map(centre),
@@ -298,8 +295,9 @@ const primaries = [
 // ACES RGC: S-Gamut3 linear lattice → AP1 coordinates → compressed.
 const toAp1 = (u: Vec3) =>
   new Color('camera-sgamut3', u).to('acescg').coords.map((v) => v ?? 0) as Vec3;
+// Extended sRGB: the display layer clips, so Display P3 keeps what lies beyond sRGB.
 const ap1Display = (ap1: Vec3) =>
-  new Color('acescg', ap1).to('srgb').coords.map((v) => clip(v ?? 0)) as Vec3;
+  new Color('acescg', ap1).to('srgb').coords.map((v) => v ?? 0) as Vec3;
 const outside = (rgb: Vec3) => rgb.some((v) => v < -1e-9);
 const rgcSpec: LatticeSpec = {
   zoom: 0.78,

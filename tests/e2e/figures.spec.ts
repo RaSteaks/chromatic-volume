@@ -1,4 +1,4 @@
-import { fromDisplay } from '../../src/display';
+import { cssColor, fromDisplay } from '../../src/display';
 import type { Vec3 } from '../../src/model';
 import { expect, test, type Page } from '@playwright/test';
 import { volumeFigures } from '../../src/volume-figures';
@@ -671,6 +671,16 @@ test('Display P3 canvases draw beyond sRGB and say so', async ({ page }) => {
     ),
   );
   expect(lowest).toBeLessThan(-0.2);
+
+  // Lattice edges are translucent. Alpha must be part of the colour syntax:
+  // appending it to `color(display-p3 …)` once made every P3 edge invalid.
+  for (const gamut of ['p3', 'srgb'] as const) {
+    const translucent = cssColor([1, 0.5, 0], gamut, 0.55);
+    expect(
+      await page.evaluate((c) => CSS.supports('color', c), translucent),
+      translucent,
+    ).toBe(true);
+  }
 
   await page.goto('/?fig=sgamut3&display=p3');
   await expect(page.locator('canvas').first()).toHaveAttribute(

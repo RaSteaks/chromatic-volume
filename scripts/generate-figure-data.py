@@ -31,7 +31,6 @@ import numpy as np
 warnings.filterwarnings("ignore")
 import colour  # noqa: E402
 from colour.adaptation import chromatic_adaptation_VonKries  # noqa: E402
-from colour.blindness import CVD_MATRICES_MACHADO2010  # noqa: E402
 from colour.models import (  # noqa: E402
     CCS_ILLUMINANT_POINTER_GAMUT,
     DATA_MACADAM_1942_ELLIPSES,
@@ -298,10 +297,6 @@ write(
         },
         "logc4": colour.models.log_encoding_ARRILogC4(linear).tolist(),
         "slog3": colour.models.log_encoding_SLog3(linear).tolist(),
-        "machado": {
-            name: CVD_MATRICES_MACHADO2010[key][1.0].tolist()
-            for name, key in (("protan", "Protanomaly"), ("deutan", "Deuteranomaly"), ("tritan", "Tritanomaly"))
-        },
         "blackbody": {"temperatures": temperatures, "xy": bb_xy},
         "daylight": {"temperatures": [4000, 5000, 6500, 10000], "xy": daylight_xy},
         "optimal": optimal,

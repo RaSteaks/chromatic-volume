@@ -52,8 +52,9 @@ describe('geometric morph labels and current-frame readouts', () => {
     const current = lattice(1.6);
     const position = current.positions.find((p) => p.some((v) => v < 0))!;
     const display = new Color('acescg', position).to('srgb').coords;
-    expect(spec.display!(position, 1.6)).toEqual(
-      display.map((v) => Math.min(Math.max(v ?? 0, 0), 1)),
-    );
+    // Extended sRGB: the display layer clips, so Display P3 keeps its range.
+    expect(spec.display!(position, 1.6)).toEqual(display.map((v) => v ?? 0));
+    const sGamutRed = spec.keyframes[0].color([1, 0, 0]);
+    expect(sGamutRed.some((v) => v < 0 || v > 1)).toBe(true);
   });
 });

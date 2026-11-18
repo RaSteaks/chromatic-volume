@@ -104,13 +104,23 @@ export function clipToDisplay(srgb: Vec3, gamut = displayGamut): Vec3 {
 export function displayChannels(srgb: Vec3, gamut = displayGamut) {
   return toDisplay(srgb, gamut).map((v) => Math.round(clamp(v) * 255));
 }
-/** CSS colour for 8-bit display channels. */
-export function channelsCss(channels: number[], gamut = displayGamut) {
-  return gamut === 'p3'
-    ? `color(display-p3 ${channels.map((v) => +(v / 255).toFixed(4)).join(' ')})`
+/**
+ * CSS colour for 8-bit display channels, optionally translucent. Alpha is part
+ * of the colour syntax here; never append it to the returned string.
+ */
+export function channelsCss(
+  channels: number[],
+  gamut = displayGamut,
+  alpha = 1,
+) {
+  const opacity = alpha < 1 ? ` / ${+Math.max(alpha, 0).toFixed(4)}` : '';
+  if (gamut === 'p3')
+    return `color(display-p3 ${channels.map((v) => +(v / 255).toFixed(4)).join(' ')}${opacity})`;
+  return opacity
+    ? `rgb(${channels.join(' ')}${opacity})`
     : `rgb(${channels.join(',')})`;
 }
 /** CSS colour for encoded sRGB, clipped to the display gamut. */
-export function cssColor(srgb: Vec3, gamut = displayGamut) {
-  return channelsCss(displayChannels(srgb, gamut), gamut);
+export function cssColor(srgb: Vec3, gamut = displayGamut, alpha = 1) {
+  return channelsCss(displayChannels(srgb, gamut), gamut, alpha);
 }

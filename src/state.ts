@@ -154,13 +154,8 @@ export function decodeState(serialized: string): LabState | null {
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
-export function stateUrl(
-  state: LabState,
-  origin: string,
-  embed = false,
-): string {
+export function stateUrl(state: LabState, origin: string): string {
   const url = new URL('/', origin);
-  if (embed) url.searchParams.set('embed', '1');
   url.searchParams.set('state', encodeState(state));
   return url.href;
 }

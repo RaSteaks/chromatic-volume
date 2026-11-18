@@ -53,4 +53,11 @@ describe('display conversion', () => {
     expect(cssColor(p3Red, 'p3')).toBe('color(display-p3 1 0 0)');
     expect(cssColor([1, 1, 1], 'p3')).toBe('color(display-p3 1 1 1)');
   });
+  it('puts alpha inside the colour syntax of either display space', () => {
+    expect(cssColor([1, 0.5, 0], 'srgb', 0.55)).toBe('rgb(255 128 0 / 0.55)');
+    const p3Red = new Color('p3', [1, 0, 0]).to('srgb').coords as Vec3;
+    expect(cssColor(p3Red, 'p3', 0.55)).toBe('color(display-p3 1 0 0 / 0.55)');
+    // Opaque colours keep the compact form.
+    expect(cssColor([1, 0.5, 0], 'srgb', 1)).toBe('rgb(255,128,0)');
+  });
 });

@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process';
 const python = process.env.REFERENCE_PYTHON || 'python3';
-const generated = spawnSync(python, ['scripts/generate-reference.py'], {
+const generated = spawnSync(python, ['-I', 'scripts/generate-reference.py'], {
   stdio: 'inherit',
 });
 if (generated.error) throw generated.error;

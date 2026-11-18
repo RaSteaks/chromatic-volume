@@ -517,7 +517,6 @@ function tm30Figure({ host, controls, readout }: FigureContext) {
   const plot = createCanvas(
     host,
     (ctx, width, height) => {
-      const size = Math.min(width, height);
       const f = frame(
         width,
         height,
@@ -586,7 +585,6 @@ function tm30Figure({ host, controls, readout }: FigureContext) {
         'left',
         10,
       );
-      void size;
       plot.canvas.dataset.source = source.id;
     },
     'TM-30 色矢量图',

@@ -739,11 +739,15 @@ function encodingControls(key: 'lutInput' | 'lutOutput', label: string) {
       el('option', { value: index }, preset.name),
     ),
   );
-  const matched = cameraPresets.findIndex(
-    (preset) =>
-      preset.gamut === encoding.gamut && preset.gamma === encoding.gamma,
-  );
-  camera.value = matched < 0 ? '' : String(matched);
+  /** Show the preset that matches the current gamut and gamma, if any. */
+  const syncPreset = () => {
+    const matched = cameraPresets.findIndex(
+      (preset) =>
+        preset.gamut === encoding.gamut && preset.gamma === encoding.gamma,
+    );
+    camera.value = matched < 0 ? '' : String(matched);
+  };
+  syncPreset();
   camera.addEventListener('change', () => {
     if (camera.value === '') return;
     const preset = cameraPresets[Number(camera.value)];
@@ -769,6 +773,7 @@ function encodingControls(key: 'lutInput' | 'lutOutput', label: string) {
   gamma.value = encoding.gamma;
   gamut.addEventListener('change', () => {
     encoding.gamut = gamut.value;
+    syncPreset();
     updateModel();
   });
   gamma.addEventListener('change', () => {
@@ -946,7 +951,7 @@ function renderInspector() {
       el(
         'p',
         { class: 'inspector-hint' },
-        '支持 33 点（33³）和 65 点（65³）LUT，也兼容其他 2–65³ 尺寸；完整保留查找表节点。画面采样密度不改变 LUT 精度。支持 DOMAIN_MIN / MAX，三线性和四面体插值可切换。仅支持三维 LUT，不支持一维 shaper。输入按 DOMAIN 边界钳制，输出坐标不裁剪。',
+        '支持 33 点（33³）和 65 点（65³）LUT，也兼容其他 2–65³ 尺寸；完整保留查找表节点。画面采样密度不改变 LUT 精度。支持 DOMAIN_MIN / MAX 与 Resolve 的 LUT_3D_INPUT_RANGE，三线性和四面体插值可切换。仅支持三维 LUT，不支持一维 shaper。输入按 DOMAIN 边界钳制，输出坐标不裁剪。',
       ),
       el(
         'p',
@@ -1019,7 +1024,8 @@ function renderInspector() {
         { icon: direction === -1 ? 'up' : 'down', class: 'button subtle' },
       );
       control.dataset.order = String(direction);
-      control.disabled = direction === -1 ? index === 0 : index === 9;
+      control.disabled =
+        direction === -1 ? index === 0 : index === state.stages.length - 1;
       return control;
     };
     content.append(

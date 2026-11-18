@@ -112,7 +112,7 @@ function layout(
   };
 }
 
-// ---------------------------------------------------------------- 34 chroma
+// ------------------------------------------------------- chroma subsampling
 const KR = 0.2126,
   KB = 0.0722,
   KG = 1 - KR - KB;
@@ -264,7 +264,7 @@ function subsampling({ host, controls, readout }: FigureContext) {
   return () => plot.destroy();
 }
 
-// ---------------------------------------------------------------- 35 bit depth
+// ---------------------------------------------------------------- bit depth
 function bitDepth({ host, controls, readout }: FigureContext) {
   let range: [number, number] = [0.2, 0.3];
   let stretch = true;
@@ -424,7 +424,7 @@ function bitDepth({ host, controls, readout }: FigureContext) {
   return () => plot.destroy();
 }
 
-// ---------------------------------------------------------------- 36 Bayer
+// -------------------------------------------------------------------- Bayer
 const stages = [
   { id: 'source', name: '原图' },
   { id: 'mosaic', name: '拜耳马赛克' },

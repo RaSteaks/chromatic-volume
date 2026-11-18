@@ -369,7 +369,7 @@ export function displayRgb(xyz: Vec3): { rgb: Vec3; clipped: boolean } {
   return { rgb: clipToDisplay(rgb), clipped: !inDisplay(rgb) };
 }
 /** CSS colour for encoded sRGB, clipped to the display gamut. */
-export const css = (rgb: Vec3) => cssColor(rgb);
+export const css = (rgb: Vec3, alpha = 1) => cssColor(rgb, displayGamut, alpha);
 /**
  * Linear-light XYZ at full brightness: negative display channels are clipped
  * and the largest linear display channel is scaled to 1. Returns encoded sRGB.

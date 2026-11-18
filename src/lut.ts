@@ -7,6 +7,12 @@ export interface CubeLut {
   max: Vec3;
   data: Vec3[];
 }
+const HEADERS = [
+  'LUT_3D_SIZE',
+  'DOMAIN_MIN',
+  'DOMAIN_MAX',
+  'LUT_3D_INPUT_RANGE',
+];
 export function parseCube(text: string, name = '导入 LUT'): CubeLut {
   if (text.length > 32 * 1024 * 1024)
     throw new Error('LUT 文件不能超过 32 MB。');
@@ -21,32 +27,44 @@ export function parseCube(text: string, name = '导入 LUT'): CubeLut {
     if (line.startsWith('TITLE ')) continue;
     const tokens = line.split(/\s+/);
     const key = tokens[0];
-    if (['LUT_3D_SIZE', 'DOMAIN_MIN', 'DOMAIN_MAX'].includes(key)) {
+    if (HEADERS.includes(key)) {
       if (headers.has(key)) throw new Error(`重复的 ${key} 声明。`);
       headers.add(key);
       if (data.length) throw new Error('LUT 头信息必须在采样数据之前。');
+      const values = tokens.slice(1).map(Number);
       if (key === 'LUT_3D_SIZE') {
-        size = Number(tokens[1]);
+        size = values[0];
         if (
-          tokens.length !== 2 ||
+          values.length !== 1 ||
           !Number.isInteger(size) ||
           size < 2 ||
           size > 65
         )
           throw new Error('仅支持尺寸为 2–65 的三维 .cube LUT。');
+      } else if (key === 'LUT_3D_INPUT_RANGE') {
+        // Resolve's spelling of one input domain shared by all three channels.
+        if (values.length !== 2 || values.some((v) => !Number.isFinite(v)))
+          throw new Error('LUT_3D_INPUT_RANGE 必须包含两个有限数值。');
+        min = [values[0], values[0], values[0]];
+        max = [values[1], values[1], values[1]];
       } else {
-        const values = tokens.slice(1).map(Number);
         if (values.length !== 3 || values.some((v) => !Number.isFinite(v)))
           throw new Error('DOMAIN 必须包含三个有限数值。');
         if (key === 'DOMAIN_MIN') min = values as Vec3;
         else max = values as Vec3;
       }
+      if (
+        headers.has('LUT_3D_INPUT_RANGE') &&
+        (headers.has('DOMAIN_MIN') || headers.has('DOMAIN_MAX'))
+      )
+        throw new Error(
+          'LUT_3D_INPUT_RANGE 与 DOMAIN_MIN / DOMAIN_MAX 不能同时声明。',
+        );
       continue;
     }
-    if (/^[A-Za-z_]/.test(key))
-      throw new Error(
-        `不支持 ${key}；请选择不含一维 shaper 的三维 .cube LUT。`,
-      );
+    if (key.startsWith('LUT_1D_'))
+      throw new Error(`不支持一维 shaper（${key}）；请选择纯三维 .cube LUT。`);
+    if (/^[A-Za-z_]/.test(key)) throw new Error(`不支持 ${key} 声明。`);
     const values = tokens.map(Number);
     if (!size || values.length !== 3 || values.some((v) => !Number.isFinite(v)))
       throw new Error(
@@ -61,7 +79,7 @@ export function parseCube(text: string, name = '导入 LUT'): CubeLut {
       `LUT 采样数量不符：需要 ${size ** 3} 行，实际 ${data.length} 行。`,
     );
   if (min.some((v, i) => v >= max[i]))
-    throw new Error('每个 DOMAIN_MAX 都必须大于 DOMAIN_MIN。');
+    throw new Error('输入范围的上限必须大于下限（DOMAIN_MAX > DOMAIN_MIN）。');
   return { name, size, min, max, data };
 }
 export function applyLut(

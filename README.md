@@ -54,24 +54,24 @@
   </tr>
 </table>
 
-<sub>屏幕只能显示 sRGB 范围内的颜色，宽色域的点在着色时会被裁剪；点的位置不受影响。</sub>
+<sub>着色只能显示屏幕色域（sRGB，支持时为 Display P3）内的颜色，更宽的点在着色时会被裁剪；点的位置不受影响。</sub>
 
 <br />
 
 ## ✨ 工作台功能
 
-| 功能            | 说明                                                                                                                                          |
-| --------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| **流程导航**    | 33 个图例按 拍摄 → 调色 → 交付 分组；源色域、目标模型、LUT、显示与导出收在默认折叠的「高级」里                                                |
-| **源色域**      | sRGB、线性 sRGB、Display P3、Rec.2020、Adobe RGB、ProPhoto RGB、ACEScg、ACEScc、Rec.709 OETF、Rec.709 + BT.1886                               |
-| **目标模型**    | 21 种：Oklab / OKLCH、CIELAB / LCh、CIELUV / LChuv、CIE XYZ、各 RGB 工作空间、HSL、HSV                                                        |
-| **3D LUT**      | 导入 2³–65³ 的 `.cube` 文件，完整加载不降采样；三线性 / 四面体插值；内置 ARRI、Sony、Canon、Panasonic、RED、Blackmagic、Nikon、DJI 摄影机预设 |
-| **自定义 Look** | 十种可开关、可调整顺序的处理阶段，观察每一步怎样拉伸、剪切、压扁色体积                                                                        |
-| **映射进度**    | 在源位置与目标位置之间插值，看每个点的移动轨迹                                                                                                |
-| **精确读数**    | 点击任一点查看各阶段坐标；看点栏报告颜色损失与超出显示范围的点数                                                                              |
-| **交互**        | 拖动 / 方向键旋转，两侧同步；滚轮 / `+` `-` 缩放；`Home` 复位；可选自动旋转                                                                   |
-| **导出与分享**  | 两侧画布导出为 PNG；完整状态编码进 URL                                                                                                        |
-| **自动预览**    | `/preview` 固定展示 sRGB → Oklab 缓慢旋转，可直接嵌入                                                                                         |
+| 功能            | 说明                                                                                                                                                                                       |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **流程导航**    | 33 个图例按 拍摄 → 调色 → 交付 分组；源色域、目标模型、LUT、显示与导出收在默认折叠的「高级」里                                                                                             |
+| **源色域**      | 13 种：sRGB、线性 sRGB、Display P3、Rec.2020、Adobe RGB、ProPhoto RGB、ACEScg、ACEScc、Rec.709 OETF、Rec.709 + BT.1886、DaVinci Wide Gamut、ARRI Wide Gamut 4、S-Gamut3                    |
+| **目标模型**    | 31 种：Oklab / OKLCH、CIELAB（D50 / D65）/ LCh、CIELUV / LChuv、CIE XYZ（D65 / D50）、RGB 工作空间与 Log 编码、宽色域与摄影机色域、HSL / HSV 及其六棱锥、Y′CbCr、LMS、IPT、Jzazbz、ZCAM    |
+| **3D LUT**      | 导入 2³–65³ 的 `.cube` 文件，完整加载不降采样；三线性 / 四面体插值；内置 ARRI、Sony、Canon、Panasonic、RED、Blackmagic、Nikon、DJI 摄影机预设；支持 DOMAIN_MIN / MAX 与 LUT_3D_INPUT_RANGE |
+| **自定义 Look** | 十种可开关、可调整顺序的处理阶段，观察每一步怎样拉伸、剪切、压扁色体积                                                                                                                     |
+| **映射进度**    | 在源位置与目标位置之间插值，看每个点的移动轨迹                                                                                                                                             |
+| **精确读数**    | 点击任一点查看各阶段坐标；看点栏报告颜色损失与超出显示范围的点数                                                                                                                           |
+| **交互**        | 拖动 / 方向键旋转，两侧同步；滚轮 / `+` `-` 缩放；`Home` 复位；可选自动旋转                                                                                                                |
+| **导出与分享**  | 两侧画布导出为 PNG；导出后同时给出一个编码了完整参数的独立链接（导入的 LUT 文件需重新选择）                                                                                                |
+| **自动预览**    | `/preview` 固定展示 sRGB → Oklab 缓慢旋转，可直接嵌入                                                                                                                                      |
 
 <br />
 
@@ -81,7 +81,7 @@
 - **色彩引擎**：[Color.js](https://colorjs.io/) 负责标准转换；BT.709 / BT.1886、ACEScc 与八家摄影机 Log 曲线由项目实现并注册为 Color.js 空间。
 - **严格比例**：每个模型只做统一缩放与平移，三轴单位一致；圆柱模型先还原为笛卡尔坐标。LUT 与自定义 Look 两侧共用同一绘图空间、轴和相机。
 - **数值验证**：用独立的 Python [Colour Science](https://www.colour-science.org/) 生成参考值，与生产代码交叉比对 5,905 个案例。详见 [色彩科学与验证说明](docs/COLOR-SCIENCE.md)。
-- **构建**：TypeScript + Vite，输出纯静态站点；Vitest 单元测试，Playwright headless WebKit 端到端测试。
+- **构建**：TypeScript + Vite，输出纯静态站点；Vitest 单元测试，Playwright headless WebKit 端到端测试。构建时设置 `SITE_URL`（如 `SITE_URL=https://example.com npm run deploy`），`og:image` 会写成社交平台预览所需的绝对地址。
 
 <br />
 

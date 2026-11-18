@@ -180,6 +180,18 @@ function curveFigure(options: {
       `${options.yLabel}；指针或方向键移动曝光游标`,
     );
     const code = (signal: number) => codeValue(signal, BITS, range);
+    // Codes, slope peaks and headroom depend on the visible curves and the
+    // code range, not on the cursor: recompute them only when those change.
+    const updateSummary = () =>
+      summary.replaceChildren(
+        el('strong', {}, options.summary.title),
+        readoutTable(
+          ['', ...options.summary.head],
+          options.curves
+            .filter((c) => visible.has(c.id))
+            .map((c) => [c.name, ...options.summary.row(c, code)]),
+        ),
+      );
     const update = () => {
       const span = codeSpan(BITS, range);
       table.replaceChildren(
@@ -207,15 +219,6 @@ function curveFigure(options: {
               ),
             );
           }),
-      );
-      summary.replaceChildren(
-        el('strong', {}, options.summary.title),
-        readoutTable(
-          ['', ...options.summary.head],
-          options.curves
-            .filter((c) => visible.has(c.id))
-            .map((c) => [c.name, ...options.summary.row(c, code)]),
-        ),
       );
       plot.redraw();
     };
@@ -254,6 +257,7 @@ function curveFigure(options: {
             const item = toggle(`curve-${c.id}`, c.name, true, (on) => {
               if (on) visible.add(c.id);
               else visible.delete(c.id);
+              updateSummary();
               update();
             });
             item.lastElementChild?.prepend(
@@ -282,10 +286,12 @@ function curveFigure(options: {
         '码值范围',
         segmented('码值范围', codeRanges, range, (v) => {
           range = v;
+          updateSummary();
           update();
         }),
       ),
     );
+    updateSummary();
     update();
     return () => {
       stopProbe();

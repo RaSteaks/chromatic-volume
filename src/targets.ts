@@ -383,7 +383,8 @@ colorTargets.push(
     description:
       'Safdar 等（2021）基于 Jzazbz 的 HDR 色貌模型。观看条件：白 203 cd/m²，适应亮度与背景为白的 20%，普通环境。常数已与 Colour Science 0.4.4 逐项核对。',
     route: 'XYZ → CAT02 适应 → Iz、az、bz → 明度 J、色度 C、色相 h',
-    layout: 'J 为 0–100 竖轴；C 与 J 同单位（除以 100）。',
+    // Shown only with illustrative axes; equal axes divide C by 100 like J.
+    layout: 'J 为 0–100 竖轴；C 除以 50，水平方向放大为 J 的 2 倍。',
     kind: 'zcam',
     highlight:
       '色貌模型考虑了观看条件：同一批颜色的色度 C 比 Lab 小得多，体积显得瘦高。',
@@ -396,7 +397,7 @@ const highlights: Record<string, string> = {
   lab: '对立色坐标的经典版本。和 Oklab 对比，注意蓝紫一角的伸展方向。',
   'lab-d65': '与 D50 版本形状几乎相同，参考白不同导致整体轻微偏移。',
   lch: 'CIELAB 的圆柱读法，形状与 Lab D50 一致。',
-  luv: 'u*v* 平面比 Lab 更宽更扁，红色一角明显外凸。可在「对照」里选 CIELAB 并排比较。',
+  luv: 'u*v* 平面比 Lab 更宽更扁，红色一角明显外凸。可在「高级」的「左侧」里选 CIELAB 并排比较。',
   lchuv: 'CIELUV 的圆柱读法，形状不变。',
   'xyz-d65':
     '线性三刺激值中，RGB 立方体变成一个斜切的平行六面体：每条棱都是一个原色的强度。',

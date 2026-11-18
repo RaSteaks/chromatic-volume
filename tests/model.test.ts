@@ -155,15 +155,41 @@ describe('cube LUT import', () => {
     close(applyLut([0, 0, 0], lut), [0.5, 0.5, 0.5]);
     close(applyLut([2, -2, 1], lut), [1, 0, 1]);
   });
+  test('reads Resolve LUT_3D_INPUT_RANGE as a domain shared by all channels', () => {
+    const lut = parseCube(
+      identity.replace(
+        'LUT_3D_SIZE 2',
+        'LUT_3D_SIZE 2\nLUT_3D_INPUT_RANGE -1 1',
+      ),
+    );
+    expect(lut.min).toEqual([-1, -1, -1]);
+    expect(lut.max).toEqual([1, 1, 1]);
+    close(applyLut([0, 0, 0], lut), [0.5, 0.5, 0.5]);
+    close(applyLut([2, -2, 1], lut), [1, 0, 1]);
+  });
   test.each([
     'LUT_1D_SIZE 2\n0 0 0',
     'LUT_3D_SIZE 66',
     identity + '\n0 0 0',
     identity.replace('1 1 1', 'NaN 1 1'),
     identity.replace('LUT_3D_SIZE 2', 'LUT_3D_SIZE 2\nDOMAIN_MAX 0 1 1'),
+    identity.replace('LUT_3D_SIZE 2', 'LUT_3D_SIZE 2\nLUT_3D_INPUT_RANGE 0'),
+    identity.replace('LUT_3D_SIZE 2', 'LUT_3D_SIZE 2\nLUT_3D_INPUT_RANGE 1 0'),
+    identity.replace(
+      'LUT_3D_SIZE 2',
+      'LUT_3D_SIZE 2\nLUT_3D_INPUT_RANGE 0 1\nDOMAIN_MAX 1 1 1',
+    ),
   ])('rejects unsupported or malformed LUTs: %s', (text) =>
     expect(() => parseCube(text)).toThrow(),
   );
+  test('names the actual problem instead of blaming a shaper', () => {
+    expect(() =>
+      parseCube('LUT_1D_SIZE 4\nLUT_3D_SIZE 2\n' + identity),
+    ).toThrow(/一维 shaper（LUT_1D_SIZE）/);
+    expect(() =>
+      parseCube(identity.replace('LUT_3D_SIZE 2', 'LUT_3D_SIZE 2\nFOO 1')),
+    ).toThrow('不支持 FOO 声明。');
+  });
 });
 
 describe('selectable source gamut', () => {
