@@ -67,7 +67,7 @@ export const volumeFigures: VolumeFigure[] = [
   {
     id: 'jzazbz',
     highlight:
-      '分析 HDR 高光时，要先确定 RGB 值对应的绝对亮度。本图把参考白设为 203 cd/m²，sRGB 白点在 Jz 中约为 0.22，因此样本体积集中在下部。坐标用于分析亮度范围，画布上的颜色仍按 sRGB 显示。',
+      '分析 HDR 高光时，要先确定 RGB 值对应的绝对亮度。本图把 sRGB 白设为 203 cd/m²，对应 Jz ≈ 0.222。竖轴标到 0.25，白点位于这段标尺约 89% 处。',
     state: { target: 'jzazbz' },
     view: { yaw: Math.PI / 4, pitch: 0.3 },
   },
@@ -81,7 +81,7 @@ export const volumeFigures: VolumeFigure[] = [
   {
     id: 'ap1',
     highlight:
-      '在 VFX 中使用 ACEScg 时，可用这张图区分 AP1 工作坐标与物体反射色范围。线性 0–1 的 9³ 样本中，255 / 729 超出等能白 E、完美漫反射体 Y = 1 的最优反射色边界（Bradford 适配到 D65）。发光色与更高曝光另有范围，这个比例不是虚色或镜头裁剪比例。',
+      '在 VFX 中使用 ACEScg 时，可用这张图区分 AP1 工作坐标与物体反射色范围。线性 0–1 的 9³ 样本中，254 / 729 超出等能白 E、完美漫反射体 Y = 1 的最优反射色边界（Bradford 适配到 D65）。发光色与更高曝光另有范围，这个比例不是虚色或镜头裁剪比例。',
     state: {
       source: 'acescg',
       target: 'oklab',
@@ -94,7 +94,7 @@ export const volumeFigures: VolumeFigure[] = [
   {
     id: 'dwg',
     highlight:
-      '在 DaVinci Wide Gamut 中调色时，工作坐标的范围与最终显示范围需要分别看待。此处 9³ 样本中，429 / 729 超出等能白 E、Y = 1 的最优反射色范围（Bradford 适配到 D65）。边界外也可能包含真实发光色，不能把这些点直接算成镜头中不可显示的像素。',
+      '在 DaVinci Wide Gamut 中调色时，工作坐标的范围与最终显示范围需要分别看待。此处 9³ 样本中，428 / 729 超出等能白 E、Y = 1 的最优反射色范围（Bradford 适配到 D65）。边界外也可能包含真实发光色，不能把这些点直接算成镜头中不可显示的像素。',
     state: {
       source: 'dwg-linear',
       target: 'oklab',
@@ -107,7 +107,7 @@ export const volumeFigures: VolumeFigure[] = [
   {
     id: 'awg4',
     highlight:
-      '处理 ARRI LogC4 素材时，需要同时匹配 Log 编码与 AWG4 基色。这里仅展示 AWG4 的线性坐标：377 / 729 个样本超出等能白 E、Y = 1 的最优反射色范围（Bradford 适配到 D65）。它不是摄影机动态范围、实拍镜头或完整成像风格的测量。',
+      '处理 ARRI LogC4 素材时，需要同时匹配 Log 编码与 AWG4 基色。这里仅展示 AWG4 的线性坐标：376 / 729 个样本超出等能白 E、Y = 1 的最优反射色范围（Bradford 适配到 D65）。它不是摄影机动态范围、实拍镜头或完整成像风格的测量。',
     state: {
       source: 'camera-arri4',
       target: 'oklab',

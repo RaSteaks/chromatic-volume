@@ -12,7 +12,6 @@ import {
   isotherm,
   spectralLocus,
   uvPrimeToXy,
-  WAVELENGTHS,
   xyToUvPrime,
 } from '../science/spectral';
 import '../targets';
@@ -39,7 +38,7 @@ import {
 } from './plot';
 
 type XY = [number, number];
-const locus = spectralLocus();
+const locus = gamutData.spectralLocus.xy as XY[];
 
 // --------------------------------------------------------------- horseshoe fill
 const XYZ_TO_LINEAR: number[][] = [
@@ -58,6 +57,27 @@ function inside(polygon: XY[], [x, y]: XY) {
       hit = !hit;
   }
   return hit;
+}
+
+function classifyChromaticity(polygon: XY[], point: XY) {
+  // Published primaries are often rounded to 0.001 per xy coordinate.
+  // Half a diagonal of that rounding cell is the uncertainty in xy distance.
+  const tolerance = Math.SQRT1_2 * 0.001;
+  for (let i = 0; i < polygon.length; i++) {
+    const a = polygon[i],
+      b = polygon[(i + 1) % polygon.length];
+    const dx = b[0] - a[0],
+      dy = b[1] - a[1];
+    const lengthSquared = dx * dx + dy * dy;
+    const px = point[0] - a[0],
+      py = point[1] - a[1];
+    const t = lengthSquared
+      ? Math.max(0, Math.min(1, (px * dx + py * dy) / lengthSquared))
+      : 0;
+    if ((px - t * dx) ** 2 + (py - t * dy) ** 2 <= tolerance ** 2)
+      return 'boundary';
+  }
+  return inside(polygon, point) ? 'inside' : 'outside';
 }
 const fillCache = new Map<string, HTMLCanvasElement>();
 /** Raster of displayable chromaticities inside a polygon given in plot units. */
@@ -140,8 +160,8 @@ function wavelengthTicks(
   ctx.fillStyle = INK.text;
   ctx.strokeStyle = INK.text;
   for (const w of marks) {
-    const i = WAVELENGTHS.indexOf(w);
-    if (i < 0) continue;
+    const i =
+      (w - gamutData.spectralLocus.start) / gamutData.spectralLocus.step;
     const [x, y] = points[i];
     const dx = x - center[0],
       dy = y - center[1];
@@ -320,13 +340,14 @@ function horseshoe({ host, controls, readout }: FigureContext) {
       return;
     }
     const uv = xyToUvPrime(point);
-    const physical = inside(locus, point);
+    const region = classifyChromaticity(locus, point);
     const gamut = gamutPrimaries[gamutIndex];
-    const rows: (string | null)[] = [
+    const rows = [
       `x ${fmt(point[0])}  y ${fmt(point[1])}`,
       `u′ ${fmt(uv[0])}  v′ ${fmt(uv[1])}`,
     ];
-    if (physical) {
+    if (region !== 'outside') {
+      if (region === 'boundary') rows.push('接近可见色度边界');
       const result = cctDuv(point);
       if (!result) rows.push('CCT 超出计算范围（1000–100000 K）');
       else {
@@ -337,13 +358,16 @@ function horseshoe({ host, controls, readout }: FigureContext) {
             : 'CCT 未定义（|Duv| > 0.05）',
         );
       }
+      const gamutRegion = classifyChromaticity(gamut.xy, point);
       rows.push(
-        `${inside(gamut.xy, point) ? '在' : '不在'} ${gamut.name} 色域内`,
+        gamutRegion === 'boundary'
+          ? `接近 ${gamut.name} 色域边界`
+          : `${gamutRegion === 'inside' ? '在' : '不在'} ${gamut.name} 色域内`,
       );
     } else rows.push('光谱轨迹外：非物理刺激');
     probeInfo.replaceChildren(
       el('strong', {}, '读数'),
-      ...rows.map((text) => el('span', {}, text!)),
+      ...rows.map((text) => el('span', {}, text)),
     );
   };
   const srgbArea = {
@@ -352,7 +376,9 @@ function horseshoe({ host, controls, readout }: FigureContext) {
   };
   const update = () => {
     const g = gamutPrimaries[gamutIndex];
-    const outside = g.xy.filter((p) => !inside(locus, p)).length;
+    const regions = g.xy.map((p) => classifyChromaticity(locus, p));
+    const boundary = regions.filter((r) => r === 'boundary').length;
+    const outside = regions.filter((r) => r === 'outside').length;
     gamutInfo.replaceChildren(
       el('strong', {}, `${g.name} 基色`),
       readoutTable(
@@ -370,7 +396,7 @@ function horseshoe({ host, controls, readout }: FigureContext) {
       el(
         'span',
         {},
-        outside ? `${outside} 个基色在光谱轨迹外` : '三个基色均在光谱轨迹内',
+        `基色位置 · 内部 ${3 - boundary - outside} · 近边界 ${boundary} · 外部 ${outside}`,
       ),
     );
     updateProbe();
@@ -563,12 +589,13 @@ function macAdam({ host, controls, readout }: FigureContext) {
     (ctx, width, height) => {
       const f = frame(width, height, [0, 0.8], [0, 0.9], undefined, true);
       const shape = locus.map((p, i) => mix(p, locusUv[i]));
-      const name = t < 0.5 ? ['x', 'y'] : ['u′', 'v′'];
+      const transition = t > 0 && t < 1;
+      const name = t === 0 ? ['x', 'y'] : ['u′', 'v′'];
       axes(ctx, f, {
-        xTicks: ticks(0, 0.8, 0.1),
-        yTicks: ticks(0, 0.9, 0.1),
-        xLabel: name[0],
-        yLabel: name[1],
+        xTicks: transition ? [] : ticks(0, 0.8, 0.1),
+        yTicks: transition ? [] : ticks(0, 0.9, 0.1),
+        xLabel: transition ? '坐标过渡示意' : name[0],
+        yLabel: transition ? undefined : name[1],
         xFormat: (v) => v.toFixed(1),
         yFormat: (v) => v.toFixed(1),
       });
@@ -807,7 +834,7 @@ const figures: FigureDef[] = [
     provenance: {
       data: 'CIE 1931 2° 与 CIE 1964 10° 标准观察者（Colour Science 0.4.4）；色域基色取自各空间的 RGB→XYZ 矩阵',
       domain:
-        '光谱轨迹 380–780 nm / 5 nm；CCT 与 Duv 在 CIE 1960 uv 中求普朗克轨迹最近点（与 Ohno 2013 同定义，直接求解）',
+        '2° 色度边界取 360–830 nm、1 nm 网格，含紫线。xy 距边界约 0.00071 以内标为近边界，对应基色坐标保留三位小数的舍入量。10° 叠加和 CCT 积分采用 380–780 nm、5 nm 网格，CCT 与 Duv 在 CIE 1960 uv 中计算。',
       approximation: `底色以 ${displayName} 可显示的最大亮度绘制，${displayName} 外裁剪，仅示意；10° 轨迹只作叠加对照，基色与 CCT 均按 2° 计算`,
       reference: 'CIE 15:2018；Ohno, LEUKOS 10(1), 2014',
     },
@@ -824,7 +851,8 @@ const figures: FigureDef[] = [
     provenance: {
       data: 'Wyszecki & Stiles 表 2(5.4.1) 计算值，经 Colour Science 0.4.4',
       domain: '椭圆在 xy 中按参数方程采样，u′v′ 中的形状由逐点射影变换得到',
-      approximation: '长短轴比取采样轮廓协方差的特征值之比',
+      approximation:
+        '长短轴比取采样轮廓协方差最大与最小特征值之比的平方根。动画中间帧仅示意坐标过渡。',
       reference: 'MacAdam, JOSA 32(5), 1942',
     },
     mount: macAdam,

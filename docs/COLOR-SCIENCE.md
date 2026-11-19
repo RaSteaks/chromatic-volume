@@ -10,16 +10,16 @@
 - XYZ / 线性 RGB：各轴使用同样的数值比例与平移。
 - 共同绘图空间的两侧复用相同轴定义、数值端点、正交相机与缩放，不分别适配点云大小。
 - 原生视图与自动预览也使用模型对应的数值轴；圆柱模型的水平轴标注为笛卡尔分量，ACEScc 标尺为 −0.36 至 0.56。
-- HSL / HSV 属于圆柱参数图，不能把其三维几何距离解释为感知色差。
-- 即使使用等单位坐标，屏幕投影距离也不是三维距离。XYZ 的欧氏距离不是感知色差；本版本没有计算 ΔE。
+- HSL / HSV 圆柱按 S%/200 绘制半径，L% 或 V% 从 0 到 100 对应高度差 1。六棱锥按色度 C = max − min 缩放六边形，中心到顶点为 C/2，L 或 V 的总高度为 1。这两种参数图均采用固定比例。
+- 即使使用等单位坐标，屏幕投影距离也不是三维距离。XYZ 的欧氏距离也不表示感知色差。工作台以相对 XYZ 的往返误差检测颜色损失。同色异谱图另行计算两条反射光谱在所选光源下经白点适配后的 CIEDE2000 色差。
 
 「严格等比例」关闭后保留之前的示意轴比例。球面着色也可单独启用，但它添加了高光与阴影。输入／输出独立色样始终使用纯色填充；LUT 与处理阶段的输出色样对应当前混合强度，不受「保留输入色」影响。标准转换的目标色样始终对应目标坐标实际解码的颜色；映射进度只改变图形位置。超出当前显示范围（sRGB，或支持时为 Display P3）会标记并裁剪，仅影响显示，不改变转换坐标。
 
-标准转换不假定颜色必然保留：BT.1886 的非负光输出、ACEScc 的负值编码下限与解码上限可能造成不可逆损失。逐样本比较转换前后相对 XYZ，任一分量绝对误差大于 `1e-7` 时，在状态栏计数并为选中样本显示提示。这是数值往返容差，不是感知色差阈值。共同视图按目标实际解码结果绘图，不复用输入点位。
+标准转换不假定颜色必然保留：BT.1886 的非负光输出、ACEScc 的负值编码下限与解码上限可能造成不可逆损失。逐样本比较转换前后相对 XYZ，任一分量非有限或绝对误差大于 `1e-7` 时，在状态栏计数并为选中样本显示提示。这是数值往返容差，不是感知色差阈值。共同视图按目标实际解码结果绘图，不复用输入点位。
 
-自定义阶段在编码 sRGB 中处理，随后转换到共同绘图空间，避免把线性 RGB 与编码 RGB 坐标差异误认为 Look 的作用。旧分享链接中的原生阶段视图会迁移到共同 Oklab。HSL / HSV 使用 `S ≤ 0.001%` 的无效色相约定，并检查 sRGB 通道间 `1e-12` 的中性容差，避免白色附近的饱和度除法放大舍入误差。
+自定义阶段在编码 sRGB 中处理，随后转换到共同绘图空间，避免把线性 RGB 与编码 RGB 坐标差异误认为 Look 的作用。旧分享链接中的原生阶段视图会迁移到共同 Oklab。HSL / HSV 使用 `S ≤ 0.001%` 的无效色相约定，并检查 sRGB 通道间 `1e-12` 的中性容差，避免白色附近的饱和度除法放大舍入误差。界面保留无效色相的「未定义」读数，重新解码时将该角度传回 Color.js 的缺省坐标表示。
 
-所有 PNG 导出均注明两侧实际绘图空间、轴比例、平面／球面着色、输入追踪／实际输出着色方式与颜色损失；原生视图选择左侧对照模型时，PNG 使用该对照模型的名称与绘图空间，共同视图则优先使用共同绘图空间。LUT 另外记录两端编码、黑白位、插值和 DOMAIN 钳制数量。
+所有 PNG 导出均注明两侧实际绘图空间、轴比例、平面／球面着色、输入追踪／实际输出着色方式；标准模型转换另记 XYZ 往返损失。原生视图选择左侧对照模型时，PNG 使用该对照模型的名称与绘图空间，共同视图则优先使用共同绘图空间。LUT 另外记录两端编码、黑白位、插值和 DOMAIN 钳制数量。
 
 ## 传递函数
 
@@ -57,7 +57,7 @@ LUT 输入和输出均提供同一组可选预设，选中后同步设置色域�
 
 这些是明确的色域／编码组合，不是所有机型、固件、EI、Log 变体的自动识别。源颜色采样范围仍由源选项决定，不会因为选择一个 Log 输入就扩展成相机完整动态范围。摄影机编码使用相对场景曝光／反射率约定（中灰 .18）；从显示参考样本转换时，相对标尺是工作台约定，不包含场景到显示的 OOTF、曝光匹配或调色软件 DRT。
 
-Sony、Canon、V-Log、N-Log 的公式已经规定其归一化码值。程序不会在这些 Log 值上再次自动执行 legal/full 缩放。自定义 LUT 若使用不同数据范围，必须匹配其真实约定。
+Sony、Canon、V-Log、N-Log 的公式已经规定其归一化码值。LUT 处理链直接使用这些码值。传递函数图可显式选择 Legal 重映射，并为 S-Log3 和 LogC4 并列显示原生码值。自定义 LUT 若使用不同数据范围，必须匹配其真实约定。
 
 矩阵采用 Colour Science 0.4.4 收录的厂商前向矩阵；逆矩阵由前向矩阵求逆，避免前后方向分别舍入造成往返漂移。DJI 厂商逆矩阵只有四位小数，与精确求逆的结果不同；这项误差在报告中单列，不宣称二者逐位相同。
 
@@ -73,7 +73,7 @@ LUT 颜色管理与查表使用浮点数。最终显示才裁剪至当前显示�
 
 ## 可复现的独立交叉验证
 
-网站运行引擎为 Color.js + 项目 TypeScript；参考引擎为独立 Python 虚拟环境中的 **Colour Science 0.4.4**，固定 numpy 1.26.4、scipy 1.13.1。OpenColorIO 的可选安装需要本机编译，未用作本次参考引擎。
+网站运行引擎为 Color.js + 项目 TypeScript；参考引擎为独立 Python 虚拟环境中的 **Colour Science 0.4.4**，固定 numpy 1.26.4、scipy 1.13.1。ACES 2.0 输出预设另由 OpenColorIO 2.6.0 验证。
 
 ```sh
 python3 -m venv /tmp/chromatic-reference
@@ -115,10 +115,11 @@ XYZ 误差主要来自不同文献中 ProPhoto 基色和摄影机矩阵的舍入
 
 `npm run generate:figure-data`（需要与上文相同的 `REFERENCE_PYTHON` 环境）运行 `scripts/generate-figure-data.py`，从 Colour Science 0.4.4 导出：
 
-- `src/data/spectral.json`：CIE 1931 2° 与 CIE 1964 10° 配色函数、Wright & Guild 1931 RGB 配色函数、D65 与 A 光源、NPL 测量的 Nikon 5100 / Sigma SD Merrill 相机光谱灵敏度（均为 380–780 nm、5 nm；Sigma 只有 400–680 nm）。
-- `src/data/gamuts.json`：Pointer（1980）色域（SC 光源下的 LCh，以及经 Bradford 适配到 D65 的 XYZ）与 MacAdam（1942）椭圆（计算值列）。
-- `src/data/tm30.json`：用 99 条 CES 光谱算出的 TM-30-18 色相区间平均值、Rf、Rg、CCT、Duv。网页只绘图，不在浏览器里重算 CAM02-UCS。
+- `src/data/spectral.json`：CIE 1931 2° 与 CIE 1964 10° 配色函数、Wright & Guild 1931 RGB 配色函数、D65 与 A 光源、相机光谱灵敏度（均为 380–780 nm、5 nm）：NPL 测量的 Nikon 5100 / Sigma SD Merrill（Sigma 只有 400–680 nm），以及 AMPAS rawtoaces-data（commit `e9b8503`，Apache-2.0）中的 ARRI D21 与 Sony α7S III，原始文件与许可证放在 `scripts/data/rawtoaces-data/`。
+- `src/data/gamuts.json`：Pointer（1980）色域（SC 光源下的 LCh，以及经 Bradford 适配到 D65 的 XYZ）、MacAdam（1942）椭圆（计算值列），以及 CIE 1931 2° 原始观察者 360–830 nm、1 nm 的 xy 轨迹。
+- `src/data/tm30.json`：用 99 条 CES 光谱算出的 TM-30-18 色相区间平均值、Rf、Rg、CCT、Duv。色矢量从 16 个区间的中心方向出发，归一化位移的径向和切向分量分别对应 Rcs,hj（百分数除以 100）和 Rhs,hj。网页只绘图，不在浏览器里重算 CAM02-UCS。
 - `tests/reference/figures.json`：供 `tests/figures-science.test.ts` 比对的独立参考值。
+- `tests/reference/aces2.json`：由 `scripts/generate-aces2-reference.py` 调用 OpenColorIO 2.6.0 的内置变换生成（独立的 C++ 实现）：线性 Rec.709 经 Bradford 内置变换进入 ACES2065-1，再经 `ACES-OUTPUT - ACES2065-1_to_CIE-XYZ-D65 - SDR-100nit-REC709_2.0` 与 `DISPLAY - CIE-XYZ-D65_to_sRGB` 得到 sRGB 码值；覆盖 9³ 色调映射晶格、−10 至 +8 档中性灰阶与 12 个极值色。
 
 已核对（`tests/figures-science.test.ts`）：
 
@@ -135,11 +136,13 @@ XYZ 误差主要来自不同文献中 ProPhoto 基色和摄影机矩阵的舍入
 | CCT、Duv（7 个色度点，Duv 绝对值至 0.01）                | `uv_to_CCT_Ohno2013`                           | CCT 相对 2×10⁻³，Duv 2×10⁻⁴ |
 | 10-bit / 8-bit Full 与 Legal range 码值                  | ITU-R BT.709、BT.2100 定义                     |                        精确 |
 
-没有独立参考实现、因而只做性质检查的部分：Stephen Hill 的 ACES 拟合与 AgX 多项式近似（单调、0–1 有界）、ACES RGC（阈值内不变、极限映射到边界）、同色异谱样本（D65 下 XYZ 相等、A 下不同）。宽色域图例中超出最优色边界的采样比例（AP1 255/729、DWG 429/729、AWG4 377/729、S-Gamut3 374/729）由同一生成脚本用 Colour 的 `XYZ_outer_surface` 凸包检查得到，记录在 `tests/reference/figures.json` 的 `outsideOptimal`，并由单元测试与图例文字逐项核对。
+ACES 2.0 输出变换另与 OpenColorIO 2.6.0 比对（`tests/reference/aces2.json`，814 个输入）：sRGB 码值容差 2×10⁻⁵，实测最大差 1.4×10⁻⁵。OCIO 以 float32 计算，网页按参考 CTL 以 float64 计算，差异来自精度与色相表搜索的舍入。
 
-上述最优色体积固定等能白 E、反射率 0–1 与完美漫反射体 Y=1，再经 Bradford 适配到 D65 绘图；适配后的 E 色体积不是重新用 D65 光谱积分的结果。边界外比例不是虚色比例，也不是摄影机色域中不可见颜色的比例：真实的发光色也可能在该反射色体积之外。白色线圈只展示 E 下 L* 10–90 的切片，不构成包含黑白端点的完整外壳。
+没有独立参考实现、因而只做性质检查的部分：AgX 多项式近似（中性灰阶输出在 0–1 内，红通道在 +6.500 至 +6.501 EV 的高光截点附近有小于 4×10⁻⁷ 的 sRGB 编码回落）、ACES RGC（阈值内不变、极限映射到边界）、同色异谱样本（D65 下 XYZ 相等、A 下不同）。宽色域图例中超出最优色边界的采样比例（AP1 254/729、DWG 428/729、AWG4 376/729、S-Gamut3 374/729）由同一生成脚本用 Colour 的 `XYZ_outer_surface` 凸包检查得到，记录在 `tests/reference/figures.json` 的 `outsideOptimal`，并由单元测试与图例文字逐项核对。
 
-AgX 的多项式与 outset 输出处于 Gamma 2.2 编码域，先以 2.2 次幂解码成线性 Rec.709 显示值。AgX 与 ACES 拟合共用「线性显示值 → sRGB 分段编码」的显示路径，曲线、晶格和色样均遵循这一约定；Gamma 2.2 不能直接当作 sRGB 分段编码。固定暗部与中灰值用于编码域回归检查，不宣称它们是完整 AgX 的独立参考验证。
+最优色体积在等能光源 E 下取反射率 0–1，完美漫反射体 Y=1。凸包统计与绘图使用同一 5 nm 网格的积分白（XYZ 约为 1.00000924、1、1.00000994）做 Bradford 适配。越界判定取点到凸包各面的最大有符号距离，容差为相对 XYZ 的 10⁻⁹；黑、白两端都在壳面上。适配后的 E 色体积不是重新用 D65 光谱积分的结果。边界外比例不是虚色比例，也不是摄影机色域中不可见颜色的比例：真实的发光色也可能在该反射色体积之外。白色线圈只展示 E 下 L* 10–90 的切片，不构成包含黑白端点的完整外壳。
+
+AgX 的多项式与 outset 输出处于 Gamma 2.2 编码域，先以 2.2 次幂解码成线性 Rec.709 显示值。AgX 与 ACES 2.0 共用「线性显示值 → sRGB 分段编码」的显示路径，曲线、晶格和色样均遵循这一约定；Gamma 2.2 不能直接当作 sRGB 分段编码。固定暗部与中灰值用于编码域回归检查，不宣称它们是完整 AgX 的独立参考验证。
 
 CCT 与 Duv 在网页中直接求 CIE 1960 uv 中普朗克轨迹的最近点（查表 + 黄金分割），定义与 Ohno 2013 相同，但不使用其三角 / 抛物线近似；网页的配色函数为 380–780 nm、5 nm，而 Colour 默认用 360–830 nm、1 nm，所以容差按观察者数据的差异设置，而不是浮点精度。计算范围为 1000–100000 K（含端点）；最近点超出范围时返回空结果，页面显示超出计算范围，不把截断端点作为有效 CCT 或 Duv。图中的 CIE 1976 u′v′ 仅为显示坐标，Duv 距离仍在 uv = (u′, 2v′/3) 中计算。
 
@@ -147,11 +150,11 @@ CCT 与 Duv 在网页中直接求 CIE 1960 uv 中普朗克轨迹的最近点（�
 
 ### RGB 变换晶格的坐标与动画
 
-- Hill ACES 拟合按 `clip(M_out · f(M_in · RGB))` 计算。对于固定的非零、非负 RGB 比例，增加曝光会使正系数前置矩阵的三个输出通道一起趋于高值，有理函数趋于同一个常数，最终裁剪到显示白。有限采样中的偏色和通道裁剪不表示高光永远停留在六个彩色顶点。AgX 使用 Minimal AgX 的六次多项式近似；未量化其与 Blender 完整 AgX／OCIO 输出的差异。
+- ACES 2.0 输出变换（`src/science/aces2.ts`）移植 aces-core 参考 CTL（`Lib.Academy.OutputTransform`、`Lib.Academy.Tonescale`，transform ID `v2.0 … a2.v1`），预设为 `Output.Academy.Rec709-D65_100nit_in_Rec709-D65_sRGB-Piecewise`：线性 Rec.709 经 Bradford 适配转为 ACES2065-1，按 AP1 钳制到 `[0, 1024]`，转入 JMh（简化 Hellwig 2022 CAM，L_A = 100，Y_b = 20，dim 环境），色调曲线只作用于 J，色度压缩改 M，色域压缩沿等 h 线向焦点移动，最后以 Rec.709 D65 极限色域输出并裁剪到 0–1。色相表（cusp、reach M、上包络 gamma，各 360 项）在首次调用时生成，约 30 ms。中性灰 0.18 输出约 10 cd/m²，场景值 128（`r_hit`）到达 100 cd/m²，晶格的 ±6.5 EV 范围内没有节点到达显示白；裁剪前 JMh 色相不变，晶格中由最终裁剪造成的色相偏差最大 3.7°。未实现 D60 白点模拟、其他峰值亮度与逆变换。AgX 使用 Minimal AgX 的六次多项式近似；未量化其与 Blender 完整 AgX／OCIO 输出的差异。
 - 关键帧之间以 `s = 3t² − 2t³` 做坐标插值，中间帧标为「过渡示意」，不代表变换强度或新的色彩空间。跨坐标域时轴标签标明「过渡」，仅关键帧显示对应的输入／输出状态。固定色样及矩阵读数明确标注输入与最终输出。
 - RGC 第一步将 S-Gamut3 坐标过渡到 AP1，期间不显示 AP1 越界统计。第二步在 AP1 中插值，逐帧按当前未平移的坐标统计含负通道的节点（容差 `1e-9`）；通道大于 1 不算 AP1 色域之外。RGC 的 AP1 阶段按当前线性坐标重新生成显示颜色；各阶段颜色以扩展 sRGB 交给显示层裁剪，Display P3 屏幕上保留 sRGB 之外的部分。
 - RGC 使用 `A = max(R,G,B)` 和 `d = (A − c) / abs(A)`；`A = 0` 时距离为零，重建结果也为零，包括 `[-1,0,0]` 等含负通道的输入。其余距离压缩和参数不变。
 
-回归验证覆盖六个彩色方向的 Hill 高曝光白收敛、显示编码、RGC 零最大值及邻域，以及 RGC 进度 `1 / 1.6 / 2` 对应的当前越界节点数 `206 / 117 / 0`。图例单元测试调用实际采样与插值函数；WebKit 检查状态标签、坐标域、读数及窄屏展示。
+回归验证覆盖 ACES 2.0 与 OpenColorIO 的逐点比对、六个彩色方向的高曝光白收敛、显示编码、RGC 零最大值及邻域，以及 RGC 进度 `1 / 1.6 / 2` 对应的当前越界节点数 `206 / 117 / 0`。图例单元测试调用实际采样与插值函数；WebKit 检查状态标签、坐标域、读数及窄屏展示。
 
-依据：[Hill ACES.hlsl](https://github.com/TheRealMJP/BakingLab/blob/master/BakingLab/ACES.hlsl)、[Minimal AgX](https://iolite-engine.com/blog_posts/minimal_agx_implementation)、[ACES RGC 规范](https://docs.acescentral.com/rgc/specification/)。
+依据：[ACES 2.0 参考 CTL（aces-core）](https://github.com/aces-aswf/aces-core)、[ACES 输出变换文档](https://docs.acescentral.com/system-components/output-transforms/)、[Minimal AgX](https://iolite-engine.com/blog_posts/minimal_agx_implementation)、[ACES RGC 规范](https://docs.acescentral.com/rgc/specification/)。

@@ -1,8 +1,10 @@
-import { encodeCamera } from '../camera-transfers';
+import { decodeCamera, encodeCamera } from '../camera-transfers';
 import { encodeTransfer } from '../color-management';
 import { el, slider, toggle } from '../dom';
-import { acesFitted, agx, hable, reinhard } from '../science/tonemap';
+import { aces2 } from '../science/aces2';
+import { agx, hable, reinhard } from '../science/tonemap';
 import {
+  davinciDecode,
   davinciEncode,
   hlgEncode,
   HLG_REFERENCE_WHITE,
@@ -33,12 +35,13 @@ import {
   type Frame,
 } from './plot';
 
-const clip1 = (v: number) => Math.min(v, 1);
 interface Curve {
   id: string;
   name: string;
   color: string;
   dash?: number[];
+  /** Exposure at the nominal signal peak, independent of the code-range display. */
+  extrapolateAfter?: number;
   value: (x: number) => number;
 }
 function marker(
@@ -57,29 +60,30 @@ function marker(
   ctx.restore();
   label(ctx, text, f.sx(x) + 4, f.top + 12, INK.text, 'left', 10);
 }
-interface Summary {
+interface Summary<C extends Curve> {
   title: string;
   head: string[];
-  row: (curve: Curve, code: (signal: number) => number) => string[];
+  row: (curve: C, code: (signal: number) => number) => string[];
 }
 const BITS = 10;
 /** Signal change per stop, central difference. */
 const slopeAt = (value: (stops: number) => number, stops: number) =>
   (value(stops + 0.01) - value(stops - 0.01)) / 0.02;
 
-function curveFigure(options: {
-  curves: Curve[];
+function curveFigure<C extends Curve>(options: {
+  curves: C[];
   x: [number, number];
   /** Exposure in stops → linear value fed to each curve. */
   linear: (stops: number) => number;
   xLabel: string;
   yLabel: string;
+  signalTop?: number;
   markers: [number, string][];
   strips?: boolean;
   initial: number;
-  summary: Summary;
+  summary: Summary<C>;
   /** Extra per-curve readout at the cursor, e.g. absolute luminance. */
-  extra?: (curve: Curve, stops: number) => string | null;
+  extra?: (curve: C, stops: number, range: CodeRange) => string | null;
 }) {
   return ({ host, controls, readout }: FigureContext) => {
     const visible = new Set(options.curves.map((c) => c.id));
@@ -109,12 +113,10 @@ function curveFigure(options: {
           view === 'signal' ? sample(c, x) : slope(c, x);
         const top =
           view === 'signal'
-            ? 1.05
+            ? (options.signalTop ?? 1.05)
             : Math.max(
                 0.1,
-                ...shown.flatMap((c) =>
-                  xs.map((x) => Math.min(slope(c, x), 1)),
-                ),
+                ...shown.flatMap((c) => xs.map((x) => slope(c, x))),
               ) * 1.1;
         const f = frame(width, height - stripBlock, options.x, [0, top], {
           left: 56,
@@ -123,7 +125,9 @@ function curveFigure(options: {
           bottom: 46,
         });
         lastFrame = f;
-        const yStep = view === 'signal' ? 0.1 : top > 0.5 ? 0.1 : 0.05;
+        let yStep = top > 0.5 ? 0.1 : 0.05;
+        if (view === 'signal' && top > 1.1) yStep = 0.2;
+        if (view === 'slope' && top > 2) yStep = Math.ceil(top / 10);
         axes(ctx, f, {
           xTicks: ticks(options.x[0], options.x[1], 1),
           yTicks: ticks(0, top, yStep),
@@ -134,18 +138,35 @@ function curveFigure(options: {
         });
         for (const [x, text] of options.markers) marker(ctx, f, x, text);
         for (const c of shown) {
+          const end = c.extrapolateAfter;
+          const crossesPeak = end !== undefined && end < options.x[1];
+          // Include the exact boundary in both strokes, even between samples.
+          const solid = crossesPeak ? [...xs.filter((x) => x < end), end] : xs;
           polyline(
             ctx,
             f,
-            xs.map((x) => [x, y(c, x)]),
+            solid.map((x) => [x, y(c, x)]),
             c.color,
             2,
             c.dash ?? [],
           );
-          ctx.fillStyle = c.color;
-          ctx.beginPath();
-          ctx.arc(f.sx(exposure), f.sy(y(c, exposure)), 3.5, 0, Math.PI * 2);
-          ctx.fill();
+          if (crossesPeak) {
+            polyline(
+              ctx,
+              f,
+              [end, ...xs.filter((x) => x > end)].map((x) => [x, y(c, x)]),
+              c.color,
+              2,
+              [5, 4],
+            );
+          }
+          const cursorValue = y(c, exposure);
+          if (cursorValue >= 0 && cursorValue <= top) {
+            ctx.fillStyle = c.color;
+            ctx.beginPath();
+            ctx.arc(f.sx(exposure), f.sy(cursorValue), 3.5, 0, Math.PI * 2);
+            ctx.fill();
+          }
         }
         ctx.strokeStyle = INK.bright;
         ctx.beginPath();
@@ -205,18 +226,18 @@ function curveFigure(options: {
           .filter((c) => visible.has(c.id))
           .map((c) => {
             const v = sample(c, exposure);
-            const extra = options.extra?.(c, exposure);
+            const detail =
+              c.extrapolateAfter !== undefined && exposure > c.extrapolateAfter
+                ? `公式外推 · ${slope(c, exposure).toFixed(4)} 信号/档`
+                : `码值 ${code(v)} · ${(slope(c, exposure) * span).toFixed(1)} 码值/档`;
+            const extra = options.extra?.(c, exposure, range);
             return el(
               'span',
               {},
               el('i', { style: `background:${c.color}` }),
               c.name,
               el('code', {}, v.toFixed(4)),
-              el(
-                'small',
-                {},
-                `码值 ${code(v)} · ${(slope(c, exposure) * span).toFixed(1)} 码值/档${extra ? ` · ${extra}` : ''}`,
-              ),
+              el('small', {}, extra ? `${detail} · ${extra}` : detail),
             );
           }),
       );
@@ -301,12 +322,8 @@ function curveFigure(options: {
   };
 }
 
-/** Stops above the 0-stop reference where a curve first reaches `level` (full signal by default). */
-function headroom(
-  value: (stops: number) => number,
-  level = 1 - 1e-6,
-  limit = 40,
-) {
+/** Stops above the 0-stop reference where a curve first reaches `level`. */
+function headroom(value: (stops: number) => number, level: number, limit = 40) {
   if (value(0) >= level) return 0;
   if (value(limit) < level) return Infinity;
   let lo = 0,
@@ -334,52 +351,64 @@ function steepest(value: (stops: number) => number, from: number, to: number) {
 const stopsText = (v: number) =>
   Number.isFinite(v) ? `${v >= 0 ? '+' : ''}${v.toFixed(2)}` : '> 40';
 
-export const transferCurves: Curve[] = [
+export const transferCurves = [
   {
     id: 'srgb',
     name: 'sRGB',
     color: SERIES[0],
-    value: (x) => encodeTransfer(clip1(x), 'srgb'),
+    extrapolateAfter: 0,
+    value: (x) => encodeTransfer(x, 'srgb'),
   },
   {
     id: 'rec709',
     name: 'Rec.709',
     color: SERIES[3],
-    value: (x) => encodeTransfer(clip1(x), 'rec709'),
+    extrapolateAfter: 0,
+    value: (x) => encodeTransfer(x, 'rec709'),
   },
   {
     id: 'gamma24',
     name: 'Gamma 2.4',
     color: '#d9d2c3',
-    dash: [5, 4],
-    value: (x) => encodeTransfer(clip1(x), 'gamma24'),
+    extrapolateAfter: 0,
+    value: (x) => encodeTransfer(x, 'gamma24'),
   },
-  { id: 'pq', name: 'PQ', color: SERIES[4], value: (x) => pqEncode(x * 203) },
+  {
+    id: 'pq',
+    name: 'PQ',
+    color: SERIES[4],
+    extrapolateAfter: Math.log2(10000 / 203),
+    value: (x) => pqEncode(x * 203),
+  },
   {
     id: 'hlg',
     name: 'HLG',
     color: SERIES[5],
-    value: (x) => hlgEncode(Math.min(x * HLG_REFERENCE_WHITE, 1)),
+    extrapolateAfter: Math.log2(1 / HLG_REFERENCE_WHITE),
+    value: (x) => hlgEncode(x * HLG_REFERENCE_WHITE),
   },
   {
     id: 'logc4',
     name: 'LogC4',
     color: SERIES[1],
+    extrapolateAfter: Math.log2(decodeCamera(1, 'logc4')),
     value: (x) => encodeCamera(x, 'logc4'),
   },
   {
     id: 'slog3',
     name: 'S-Log3',
     color: SERIES[2],
+    extrapolateAfter: Math.log2(decodeCamera(1, 'slog3')),
     value: (x) => encodeCamera(x, 'slog3'),
   },
   {
     id: 'di',
     name: 'DaVinci Intermediate',
     color: SERIES[6],
+    extrapolateAfter: Math.log2(davinciDecode(1)),
     value: (x) => davinciEncode(x),
   },
-];
+] satisfies (Curve & { extrapolateAfter: number })[];
 const encode = (v: number) =>
   encodeTransfer(Math.min(Math.max(v, 0), 1), 'srgb');
 export const toneCurves: Curve[] = [
@@ -404,9 +433,9 @@ export const toneCurves: Curve[] = [
   },
   {
     id: 'aces',
-    name: 'ACES 拟合',
+    name: 'ACES 2.0',
     color: SERIES[4],
-    value: (x) => encode(acesFitted([x, x, x])[0]),
+    value: (x) => encode(aces2([x, x, x])[0]),
   },
   {
     id: 'agx',
@@ -511,11 +540,11 @@ function hdCurve({ host, controls, readout }: FigureContext) {
       );
       label(
         ctx,
-        `γ = tan θ = ${gamma.toFixed(2)}`,
-        f.sx(0.45),
-        f.sy(tangent(0.45)),
+        `拐点 γ = dD/d(log₁₀ H) = ${gamma.toFixed(2)}`,
+        f.sx(-1),
+        f.sy(density(-1)) - 16,
         INK.bright,
-        'left',
+        'center',
         11,
       );
       polyline(
@@ -564,24 +593,26 @@ const figures: FigureDef[] = [
     conditions:
       '横轴 log₂(L / 漫反射白) · PQ 白 = 203 cd/m² · HLG 白 = 75% · Log 以 0.18 为中灰',
     reading:
-      '每条曲线是一种编码：横轴为相对漫反射白的曝光档数，纵轴为编码后的信号值。竖直游标所在曝光处，各曲线的信号值和 10-bit 码值列在右侧。',
+      '实线表示标称信号，虚线表示超过 1 后的公式外推。信号图显示 0–2.2，超出画框的值可用游标读取。斜率图按所选曲线的完整范围缩放。Legal 码值将信号重新映射到 64–940，例如 S-Log3 的 18% 中灰由原生 420 映射为 424。',
     grade: 'reference',
     highlight:
       '在摄影机记录、调色工作编码与 HDR 交付之间切换时，先确认曲线用途和输入标尺。对照 LogC4、S-Log3、DaVinci Intermediate 与 PQ／HLG 的中灰、白和高光码值；斜率显示每档分配的码值数。这里的编码余量不等于摄影机传感器的实测动态范围。',
     provenance: {
       data: '各标准公式；LogC4、S-Log3、DaVinci Intermediate 已对照 Colour Science 0.4.4 验证',
       domain:
-        '显示类曲线输入 0–1 相对亮度，白以上裁剪；PQ 输入 203·2^档 cd/m²；HLG 输入相对场景亮度，参考白在 75% 信号',
+        'sRGB、Rec.709 和 Gamma 2.4 在漫反射白处达到信号 1。PQ 峰值为 10 000 cd/m²，HLG 参考白为 75% 信号。Log 曲线以归一化编码值 1 为图中的标称上限。',
       approximation: 'HLG 只画 OETF，未含系统 gamma 与 OOTF',
       reference:
         'IEC 61966-2-1；ITU-R BT.709、BT.1886、BT.2100、BT.2408；ARRI LogC4 规范；Sony S-Log3 技术摘要；Blackmagic DaVinci Wide Gamut 白皮书',
     },
     mount: curveFigure({
       curves: transferCurves,
-      x: [-10, 7],
+      x: [-10, 10],
       linear: (stops) => 2 ** stops,
       xLabel: '相对漫反射白的曝光（档，0 = 白 1.0）',
       yLabel: '编码信号',
+      // HLG reaches 2.0063 at +10 stops; leave one 0.2 tick of headroom.
+      signalTop: 2.2,
       markers: [
         [0, '漫反射白'],
         [Math.log2(0.18), '18% 灰'],
@@ -593,31 +624,38 @@ const figures: FigureDef[] = [
         row: (c, code) => [
           String(code(c.value(1))),
           String(code(c.value(0.18))),
-          stopsText(headroom((x) => c.value(2 ** x))),
+          stopsText(c.extrapolateAfter),
         ],
       },
-      extra: (c, stops) =>
-        c.id === 'pq'
-          ? `${Math.min(203 * 2 ** stops, 10000).toPrecision(4)} cd/m²`
-          : null,
+      extra: (c, stops, range) => {
+        if (c.id === 'pq') return `${(203 * 2 ** stops).toPrecision(4)} cd/m²`;
+        if (
+          range === 'legal' &&
+          ['slog3', 'logc4'].includes(c.id) &&
+          stops <= c.extrapolateAfter
+        )
+          return `Legal 重映射 · 原生码值 ${codeValue(c.value(2 ** stops), BITS, 'full')}`;
+        return null;
+      },
     }),
   },
   {
     id: 'tonemap',
     conditions:
-      '横轴 log₂(L / 0.18) · Reinhard、Hable、ACES 拟合、AgX · 输出 sRGB 编码',
+      '横轴 log₂(L / 0.18) · Reinhard、Hable、ACES 2.0、AgX · 输出 sRGB 编码',
     reading:
       '每条曲线是一种色调映射：横轴为相对 18% 中灰的场景曝光档数，纵轴为 sRGB 编码的显示值。图下方的灰阶条是各曲线在同一曝光范围内的实际输出。',
     grade: 'approximate',
     highlight:
-      '处理中灰、窗外高光或灯具亮部时，可用曲线观察显示对比如何分配。中灰落点影响整体亮度，斜率峰说明对比集中在哪段，肩部压缩高光差异。这里仅比较 R = G = B 的中性输入；饱和灯光的偏色与去饱和需结合「ACES 1.x 色调映射（Hill 拟合）」晶格观察。',
+      '处理中灰、窗外高光或灯具亮部时，可用曲线观察显示对比如何分配。中灰落点影响整体亮度，斜率峰说明对比集中在哪段，肩部压缩高光差异。这里仅比较 R = G = B 的中性输入；饱和灯光的偏色与去饱和需结合「ACES 2.0 输出变换」晶格观察。',
     provenance: {
-      data: '各算子公开公式',
-      domain: '单通道中性输入（R = G = B），输出为线性显示值后统一做 sRGB 编码',
+      data: '各算子公开公式；ACES 2.0 按参考 CTL 实现',
+      domain:
+        '单通道中性输入（R = G = B），输出为线性显示值后统一做 sRGB 编码；ACES 2.0 为 Rec.709 D65、100 cd/m² 输出变换',
       approximation:
-        'ACES 为 Stephen Hill 对 ACES 1.x RRT + sRGB ODT 的拟合，不是 ACES 2.0；AgX 为 Wrensch 的 6 次多项式近似；Hable 用默认参数（白点 11.2，曝光偏移 ×2）',
+        'AgX 为 Wrensch 的 6 次多项式近似；Hable 用默认参数（白点 11.2，曝光偏移 ×2）',
       reference:
-        'Reinhard et al., SIGGRAPH 2002；Hable, GDC 2010；Hill, BakingLab；Sobotka, AgX',
+        'Reinhard et al., SIGGRAPH 2002；Hable, GDC 2010；AMPAS / ASWF, ACES 2.0 Output Transform；Sobotka, AgX',
     },
     mount: curveFigure({
       curves: toneCurves,

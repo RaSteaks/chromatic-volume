@@ -7,9 +7,12 @@ Run with the pinned reference environment (see docs/COLOR-SCIENCE.md):
 Outputs
 -------
 src/data/spectral.json   CIE 1931 2° and CIE 1964 10° CMFs, Wright & Guild RGB CMFs, D65 / A,
-                         camera spectral sensitivities (380–780 nm, 5 nm).
-src/data/gamuts.json     Pointer's gamut (LCh under SC, plus XYZ adapted to
-                         D65 with Bradford) and MacAdam (1942) ellipses.
+                         camera spectral sensitivities (380–780 nm, 5 nm): NPL
+                         Nikon / Sigma from Colour Science, ARRI D21 and
+                         Sony α7S III from scripts/data/rawtoaces-data/.
+src/data/gamuts.json     Original 1 nm CIE 1931 chromaticity locus, Pointer's
+                         gamut (LCh under SC and Bradford-adapted XYZ D65),
+                         and MacAdam (1942) ellipses.
 src/data/tm30.json       ANSI/IES TM-30-18 hue-bin averages computed from the
                          99 CES spectra for a fixed set of light sources.
 tests/reference/figures.json
@@ -58,12 +61,36 @@ def write(path: Path, data) -> None:
 
 cmfs = colour.MSDS_CMFS["CIE 1931 2 Degree Standard Observer"].copy().align(SHAPE)
 cmf_values = cmfs.values
+# Use the original 1 nm observer for the chromaticity outline: a chord joining
+# adjacent 5 nm samples can put monochromatic primaries outside the polygon.
+locus_observer = colour.MSDS_CMFS["CIE 1931 2 Degree Standard Observer"]
+assert locus_observer.shape.interval == 1
 cmfs_10 = colour.MSDS_CMFS["CIE 1964 10 Degree Standard Observer"].copy().align(SHAPE)
 wright_guild = colour.MSDS_CMFS["Wright & Guild 1931 2 Degree RGB CMFs"].copy().align(SHAPE)
 d65 = resample(colour.SDS_ILLUMINANTS["D65"])
 illuminant_a = resample(colour.SDS_ILLUMINANTS["A"])
 
 cameras = {}
+# Cinema-relevant cameras from AMPAS rawtoaces-data (Apache-2.0), vendored at
+# commit e9b8503 in scripts/data/rawtoaces-data/. Both files are already
+# tabulated on the 380–780 nm / 5 nm grid; check that instead of resampling.
+RAWTOACES = ROOT / "scripts/data/rawtoaces-data"
+for name, stem in (
+    ("ARRI D21 (rawtoaces)", "ARRI_D21_380_780_5"),
+    ("Sony α7S III (rawtoaces)", "Sony_ILCE-7SM3_380_780_5"),
+):
+    spectral_data = json.loads((RAWTOACES / f"{stem}.json").read_text())["spectral_data"]
+    assert spectral_data["index"]["main"] == ["R", "G", "B"], stem
+    table = spectral_data["data"]["main"]
+    assert sorted(map(int, table)) == WAVELENGTHS.tolist(), stem
+    values = np.array([table[str(w)] for w in WAVELENGTHS], dtype=float)
+    cameras[name] = {
+        "start": 380.0,
+        "step": 5,
+        "r": rounded(values[:, 0], 6),
+        "g": rounded(values[:, 1], 6),
+        "b": rounded(values[:, 2], 6),
+    }
 for name in colour.MSDS_CAMERA_SENSITIVITIES:
     msds = colour.MSDS_CAMERA_SENSITIVITIES[name].copy()
     # Sigma data is tabulated at 10 nm between 400 and 680 nm; keep the
@@ -81,7 +108,7 @@ for name in colour.MSDS_CAMERA_SENSITIVITIES:
 write(
     ROOT / "src/data/spectral.json",
     {
-        "source": "Colour Science 0.4.4 datasets",
+        "source": "Colour Science 0.4.4 datasets; ARRI / Sony camera sensitivities from AMPAS rawtoaces-data e9b8503 (Apache-2.0)",
         "start": 380,
         "step": 5,
         "cmf": {
@@ -119,6 +146,11 @@ ellipses = DATA_MACADAM_1942_ELLIPSES
 write(
     ROOT / "src/data/gamuts.json",
     {
+        "spectralLocus": {
+            "start": int(locus_observer.shape.start),
+            "step": 1,
+            "xy": rounded(colour.XYZ_to_xy(locus_observer.values)),
+        },
         "pointer": {
             "source": "Pointer (1980), via Colour Science 0.4.4",
             "illuminant": rounded(xy_sc, 6),
@@ -241,9 +273,13 @@ cct_ohno = [
 # (illuminant E, adapted from D65 with Bradford). Quoted in the volume figures.
 from itertools import product as _product  # noqa: E402
 
-from scipy.spatial import Delaunay  # noqa: E402
+from scipy.spatial import ConvexHull  # noqa: E402
 
-hull = Delaunay(colour.volume.XYZ_outer_surface(cmfs, illuminant_e))
+surface = colour.volume.XYZ_outer_surface(cmfs, illuminant_e)
+# The finite observer grid gives the perfect diffuser a slightly different
+# chromaticity from theoretical E. Adapt to the white used by this solid.
+sampled_white = cmf_values.sum(axis=0) / cmf_values[:, 1].sum()
+facets = ConvexHull(surface).equations
 grid = np.linspace(0, 1, 9)
 cube = np.array(list(_product(grid, grid, grid)))
 outside_optimal = {}
@@ -254,14 +290,21 @@ for key, name, decode in (
     ("camera-arri4", "ARRI Wide Gamut 4", False),
     ("camera-sgamut3", "S-Gamut3", False),
 ):
-    space = colour.RGB_COLOURSPACES[name]
+    space = colour.RGB_COLOURSPACES[name].copy()
+    if key == "srgb":
+        # Match Color.js' primary-derived matrix, including its exact white.
+        space.use_derived_transformation_matrices(True)
     cube_linear = colour.models.eotf_sRGB(cube) if decode else cube
     tristimulus = np.einsum("ij,nj->ni", space.matrix_RGB_to_XYZ, cube_linear)
     tristimulus = chromatic_adaptation_VonKries(
         tristimulus, colour.xy_to_XYZ(space.whitepoint), d65_xyz, "Bradford"
     )
-    in_e = chromatic_adaptation_VonKries(tristimulus, d65_xyz, np.ones(3), "Bradford")
-    outside_optimal[key] = int((hull.find_simplex(in_e, tol=1e-6) < 0).sum())
+    in_e = chromatic_adaptation_VonKries(tristimulus, d65_xyz, sampled_white, "Bradford")
+    # Unit facet normals give signed distances in relative XYZ. A tolerance
+    # on skinny Delaunay simplices instead depends on the triangulation.
+    distances = (in_e @ facets[:, :3].T + facets[:, 3]).max(axis=1)
+    assert np.all(np.abs(distances[[0, -1]]) < 1e-9), name
+    outside_optimal[key] = int((distances > 1e-9).sum())
 write(
     ROOT / "tests/reference/figures.json",
     {

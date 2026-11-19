@@ -128,6 +128,23 @@ test.each([true, false])(
     );
   },
 );
+test.each(['oklch', 'lch', 'lchuv', 'hsl', 'hsv'])(
+  '%s decodes neutral readouts to their original swatches and common plot positions',
+  (id) => {
+    for (const gray of [0, 0.5, 1]) {
+      const input: Vec3 = [gray, gray, gray];
+      const coords = convertColor(input, getTarget(id)!);
+      const swatch = convertColor(coords, getTarget('srgb')!, id);
+      swatch.forEach((v) => expect(v).toBeCloseTo(gray, 6));
+      for (const plot of ['xyz-d65', 'oklab', 'lab', 'srgb-linear']) {
+        const model = getTarget(plot)!;
+        const left = targetPosition(convertColor(input, model), model);
+        const right = targetPosition(convertColor(coords, model, id), model);
+        right.forEach((v, i) => expect(v).toBeCloseTo(left[i], 7));
+      }
+    }
+  },
+);
 test('legacy teaching-stage URLs migrate to a common plot space', () => {
   const state = defaultState();
   state.source = 'srgb-linear';

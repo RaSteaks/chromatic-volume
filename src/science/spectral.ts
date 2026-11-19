@@ -145,6 +145,9 @@ export function cctDuv(
   return { cct: 1e6 / mired, duv: Math.sign(v - p[1]) * distance(p) };
 }
 
+const equalEnergy = WAVELENGTHS.map(() => 1);
+const sampledWhiteE = reflectanceToXYZ(equalEnergy, equalEnergy);
+
 /**
  * MacAdam limits: slices of the Rösch–MacAdam optimal colour solid at constant
  * luminance under the equal-energy illuminant. For each start wavelength the
@@ -169,7 +172,7 @@ export function macAdamLimit(luminance: number): Vec3[] {
       Z += CMF.z[i] * fraction;
       if (Y >= target - 1e-12) break;
     }
-    ring.push(bradford([X / total, Y / total, Z / total], [1, 1, 1], D65));
+    ring.push(bradford([X / total, Y / total, Z / total], sampledWhiteE, D65));
   }
   return ring;
 }

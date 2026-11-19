@@ -2,7 +2,8 @@ import Color from 'colorjs.io';
 import { el } from '../dom';
 import { defaultState, type Vec3 } from '../model';
 import { gamutCompress } from '../science/gamut-compress';
-import { acesFitted, agx } from '../science/tonemap';
+import { aces2 } from '../science/aces2';
+import { agx } from '../science/tonemap';
 import '../targets';
 import { VolumeView, type VolumeData } from '../volume';
 import type { FigureContext, FigureDef, FigureGroup } from './page';
@@ -335,7 +336,7 @@ const rgcSpec: LatticeSpec = {
 };
 
 export const transformLattices = {
-  aces: toneFigure('ACES 拟合', acesFitted),
+  aces: toneFigure('ACES 2.0', aces2),
   agx: toneFigure('AgX', agx),
   rgc: rgcSpec,
 };
@@ -344,19 +345,20 @@ const figures: FigureDef[] = [
   {
     id: 'aces',
     conditions:
-      '每通道 0.18·2^[−6.5, +6.5] · AP1 近似矩阵 + 有理函数 · 输出 sRGB 编码',
+      '每通道 0.18·2^[−6.5, +6.5] · JMh 色调映射 + 色度压缩 + 色域压缩 · Rec.709 D65 100 cd/m² · 输出 sRGB 编码',
     reading:
-      '每个点是一个场景颜色，9×9×9 个，在每通道 ±6.5 EV 内均匀取样。输出状态把每个点画在它经 ACES 拟合 后的显示 R′G′B′ 坐标上，点色即输出颜色；虚线框是坐标 0–1 的范围。白色连线标出被跟踪颜色从输入到输出的位移。',
-    grade: 'approximate',
+      '每个点是一个场景颜色，9×9×9 个，在每通道 ±6.5 EV 内均匀取样。输出状态把每个点画在它经 ACES 2.0 输出变换后的显示 R′G′B′ 坐标上，点色即输出颜色；虚线框是坐标 0–1 的范围。白色连线标出被跟踪颜色从输入到输出的位移。',
+    grade: 'reference',
     highlight:
-      '分析霓虹、车灯等高饱和高光时，观察通道比例如何随显示变换改变。Hill 拟合在有限曝光内会出现偏色和通道裁剪；固定非零的非负 RGB 比例继续提高曝光，最终趋向显示白。晶格展示该近似公式的响应，有限采样边界不等于无限曝光极限。',
+      '分析霓虹、车灯等高饱和高光时，观察通道比例如何随显示变换改变。ACES 2.0 的色调曲线只改 J，色度压缩随亮度收拢 M，色域压缩沿等 h 线进行；跟踪色向白收拢时 JMh 色相基本不变，残余偏差来自最终的 0–1 裁剪。以 Oklab 衡量，高亮蓝仍略偏紫，因为两种模型的等色相线不同。中性灰到场景值 128（中灰以上约 9.5 档）才达 100 cd/m²，本晶格内没有节点到达显示白。',
     provenance: {
-      data: 'Stephen Hill，BakingLab ACES.hlsl',
+      data: 'ACES 2.0 参考 CTL（aces-core：Lib.Academy.OutputTransform、Lib.Academy.Tonescale）',
       domain:
-        '线性 Rec.709 场景值 → 线性 Rec.709 显示值，裁剪到 0–1 后做 sRGB 编码',
+        '线性 Rec.709 场景值经 Bradford 适配转为 ACES2065-1；输出 Rec.709 D65 线性显示值（1 = 100 cd/m²），裁剪到 0–1 后做 sRGB 分段编码',
       approximation:
-        '对 ACES 1.x RRT + sRGB ODT 的拟合，不是 ACES 2.0，也不是完整的输出变换',
-      reference: 'AMPAS ACES 1.x；Hill, BakingLab, 2016',
+        '双精度移植，色相表 360 项；仅 Rec.709 D65、100 cd/m² 预设，不含 D60 白点模拟、其他峰值亮度与逆变换',
+      reference:
+        'AMPAS / ASWF, ACES 2.0 Output Transform；Hellwig 2022 CAM（ACES 简化版）',
     },
     mount: latticeFigure(transformLattices.aces),
   },
@@ -368,7 +370,7 @@ const figures: FigureDef[] = [
       '每个点是一个场景颜色，9×9×9 个，在每通道 ±6.5 EV 内均匀取样。输出状态把每个点画在它经 AgX 后的显示 R′G′B′ 坐标上，点色即输出颜色；虚线框是坐标 0–1 的范围。白色连线标出被跟踪颜色从输入到输出的位移。',
     grade: 'approximate',
     highlight:
-      '在 CG 与实拍合成的显示流程中，高光外观取决于所用显示变换。此处 Minimal AgX 通过 inset、log₂ 曲线和 outset 改变通道关系，高曝光趋向近白色。与 Hill 拟合对照去饱和路径和裁剪行为；这组测试色不能替代完整镜头的外观评估。',
+      '在 CG 与实拍合成的显示流程中，高光外观取决于所用显示变换。此处 Minimal AgX 通过 inset、log₂ 曲线和 outset 改变通道关系，高曝光趋向近白色。与「ACES 2.0 输出变换」对照去饱和路径和色相走向；这组测试色不能替代完整镜头的外观评估。',
     provenance: {
       data: 'Benjamin Wrensch，Minimal AgX implementation, 2023',
       domain:

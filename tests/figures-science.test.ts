@@ -2,10 +2,12 @@ import Color from 'colorjs.io';
 import { describe, expect, it } from 'vitest';
 import '../src/targets';
 import reference from './reference/figures.json' with { type: 'json' };
+import tm30 from '../src/data/tm30.json' with { type: 'json' };
+import { tm30Vectors } from '../src/figures/spectrum';
 import type { Vec3 } from '../src/model';
 import { simulateBayer } from '../src/science/bayer';
 import { gamutCompress, RGC } from '../src/science/gamut-compress';
-import { xyzToXy } from '../src/science/linear';
+import { D65, xyzToXy } from '../src/science/linear';
 import { codeValue } from '../src/figures/plot';
 import {
   blackbodyXy,
@@ -15,6 +17,7 @@ import {
   A_SPD,
   emissionToXYZ,
   isotherm,
+  macAdamLimit,
   metamericPair,
   optimalColourRings,
   pulseXYZ,
@@ -22,7 +25,9 @@ import {
   WAVELENGTHS,
   xyToUv,
 } from '../src/science/spectral';
-import { acesFitted, agx, hable, reinhard } from '../src/science/tonemap';
+import { aces2, aces2OutputFromAP0 } from '../src/science/aces2';
+import aces2Reference from './reference/aces2.json' with { type: 'json' };
+import { agx, hable, reinhard } from '../src/science/tonemap';
 import {
   davinciDecode,
   davinciEncode,
@@ -33,6 +38,7 @@ import {
 import { xyzToZcam, zcamToXyz } from '../src/science/zcam';
 import { DWG_TO_XYZ } from '../src/spaces';
 import { encodeCamera } from '../src/camera-transfers';
+import { encodeTransfer } from '../src/color-management';
 
 const xyz = reference.xyz as Vec3[];
 function close(actual: number, expected: number, tolerance: number) {
@@ -57,6 +63,28 @@ describe('ZCAM against Colour Science 0.4.4', () => {
       back.forEach((v, axis) => close(v, value[axis], 1e-7));
     });
   });
+});
+
+it('places all TM-30 vectors on the bin centres with the tabulated radial and tangential shifts', () => {
+  for (const source of tm30.sources) {
+    tm30Vectors(source).forEach(({ base: [x, y], test }, j) => {
+      close(Math.hypot(x, y), 1, 1e-12);
+      const degrees = ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
+      close(degrees, 11.25 + j * 22.5, 1e-10);
+      const dx = test[0] - x,
+        dy = test[1] - y;
+      // Rcs is stored to 0.001 percentage points and Rhs to 0.0001.
+      close(100 * (dx * x + dy * y), source.rcs[j], 0.0006);
+      close(dy * x - dx * y, source.rhs[j], 0.00006);
+    });
+  }
+});
+
+it('maps the zero and full reflectors to black and the adopted display white', () => {
+  for (const Y of [0, 1]) {
+    for (const vertex of macAdamLimit(Y))
+      vertex.forEach((v, i) => close(v, Y * D65[i], 1e-10));
+  }
 });
 
 describe('perceptual and cone spaces', () => {
@@ -193,7 +221,43 @@ describe('spectral colorimetry', () => {
   });
 });
 
-describe('transforms', () => {
+describe('ACES 2.0 Output Transform against OpenColorIO 2.6', () => {
+  // OCIO evaluates in float32; the port runs the reference CTL in float64.
+  const srgb = (linear: Vec3) =>
+    linear.map((v) => encodeTransfer(v, 'srgb')) as Vec3;
+  const expectCode = (input: Vec3, expected: number[]) =>
+    srgb(aces2(input)).forEach((v, axis) => close(v, expected[axis], 2e-5));
+  it('matches the 9³ tone-mapping lattice in sRGB code values', () => {
+    const { n, ev, grey, srgb: expected } = aces2Reference.lattice;
+    const level = (i: number) => grey * 2 ** (-ev + (2 * ev * i) / (n - 1));
+    expect(expected).toHaveLength(n ** 3);
+    for (let b = 0; b < n; b++)
+      for (let g = 0; g < n; g++)
+        for (let r = 0; r < n; r++)
+          expectCode(
+            [level(r), level(g), level(b)],
+            expected[r + g * n + b * n * n],
+          );
+  });
+  it('matches the neutral ramp and colours outside Rec.709', () => {
+    aces2Reference.neutral.ev.forEach((ev, i) => {
+      const x = 0.18 * 2 ** ev;
+      expectCode([x, x, x], aces2Reference.neutral.srgb[i]);
+    });
+    for (const { input, srgb: expected } of aces2Reference.extremes)
+      expectCode(input as Vec3, expected);
+  });
+  it('maps scene grey to 10 cd/m² and reaches 100 cd/m² at r_hit = 128', () => {
+    // Neutral input stays neutral through the JMh round trip.
+    const grey = aces2([0.18, 0.18, 0.18]);
+    grey.forEach((v) => close(v, grey[0], 1e-12));
+    close(grey[0], 0.1, 1e-5);
+    close(aces2([92.16, 92.16, 92.16])[0], 0.9967, 1e-4);
+    aces2([128, 128, 128]).forEach((v) => close(v, 1, 1e-12));
+    // ACES white maps to the display's D65 white before clamping.
+    const white = aces2OutputFromAP0([1000, 1000, 1000]);
+    white.forEach((v) => close(v, white[0], 1e-9));
+  });
   it.each<Vec3>([
     [1, 0, 0],
     [0, 1, 0],
@@ -202,11 +266,28 @@ describe('transforms', () => {
     [0, 1, 1],
     [1, 0, 1],
   ])(
-    'Hill ACES converges to display white for increasing [%s, %s, %s] exposure',
+    'converges to display white for increasing [%s, %s, %s] exposure',
     (r, g, b) => {
-      expect(acesFitted([r * 10000, g * 10000, b * 10000])).toEqual([1, 1, 1]);
+      aces2([r * 10000, g * 10000, b * 10000]).forEach((v) =>
+        close(v, 1, 1e-12),
+      );
     },
   );
+  it('keeps the tracked highlight red at its Oklab hue, unlike a per-channel curve', () => {
+    const red: Vec3 = [0.18 * 2 ** (-6.5 + 13 * 0.9), 0.18, 0.18];
+    const hue = (linear: Vec3) =>
+      new Color('srgb-linear', linear).to('oklch').coords[2] ?? NaN;
+    for (const k of [1, 4, 16]) {
+      const scene = red.map((v) => v * k) as Vec3;
+      expect(Math.abs(hue(aces2(scene)) - hue(scene))).toBeLessThan(1);
+    }
+    // Tracked highlight blue still leans toward violet in Oklab terms.
+    const blue: Vec3 = [0.18, 0.18, 0.18 * 2 ** (-6.5 + 13 * 0.95)];
+    expect(hue(aces2(blue)) - hue(blue)).toBeGreaterThan(5);
+  });
+});
+
+describe('transforms', () => {
   it.each([
     [0.001, 0.00010572854037691071],
     [0.01, 0.0059946587915415215],
@@ -253,14 +334,14 @@ describe('transforms', () => {
     }
     expect(gamutCompress([-1, -1, -1])).toEqual([-1, -1, -1]);
   });
-  it('tone curves are monotonic and bounded', () => {
+  it('neutral tone curves stay bounded and the ACES neutral ramp is monotonic', () => {
     let last = -1;
     for (let ev = -10; ev <= 8; ev += 0.25) {
       const x = 0.18 * 2 ** ev;
       const values = [
         reinhard(x),
         hable(x),
-        acesFitted([x, x, x])[0],
+        aces2([x, x, x])[0],
         agx([x, x, x])[0],
       ];
       for (const v of values) {

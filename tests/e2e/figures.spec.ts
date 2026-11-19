@@ -94,7 +94,7 @@ test('old tab links open the figure in its pipeline stage', async ({
   // A removed figure opens its old tab's first figure.
   await page.goto('/?view=transform&fig=protan');
   await expect(page.locator('.figure-heading h1')).toHaveText(
-    'ACES 1.x 色调映射（Hill 拟合）',
+    'ACES 2.0 输出变换',
   );
 });
 
@@ -125,11 +125,171 @@ test('curve code values switch between full and legal range', async ({
   await expect(srgb.locator('small')).toContainText('码值 1023');
   await page.getByRole('button', { name: 'Legal range' }).click();
   await expect(srgb.locator('small')).toContainText('码值 940');
+  const sony = page
+    .locator('.curve-table > span')
+    .filter({ hasText: 'S-Log3' });
+  await expect(sony.locator('small')).toContainText(
+    'Legal 重映射 · 原生码值 610',
+  );
+  await expect(
+    page
+      .locator('.curve-table > span')
+      .filter({ hasText: 'LogC4' })
+      .locator('small'),
+  ).toContainText('原生码值');
   await page.getByRole('button', { name: '斜率' }).click();
   await expect(page.locator('.figure-host canvas')).toHaveAttribute(
     'data-view',
     'slope',
   );
+});
+
+test('CIE distinguishes monochromatic primaries from interior and exterior chromaticities', async ({
+  page,
+}) => {
+  await page.goto('/?fig=cie1931');
+  const info = page.locator('.figure-readout');
+  await expect(info).toContainText('内部 3 · 近边界 0 · 外部 0');
+  await page.locator('#gamut-cycle').fill('3');
+  await expect(info).toContainText('内部 0 · 近边界 3 · 外部 0');
+  await page.getByRole('button', { name: 'xy', exact: true }).click();
+  const bounds = (await page.locator('.figure-host canvas').boundingBox())!;
+  const f = frame(
+    bounds.width,
+    bounds.height,
+    [0, 0.8],
+    [0, 0.9],
+    undefined,
+    true,
+  );
+  // On the red spectral edge x + y ≈ 1, a neighbouring point above it is exterior.
+  await page.mouse.move(bounds.x + f.sx(0.708), bounds.y + f.sy(0.292));
+  await expect(info).toContainText('接近可见色度边界');
+  await page.screenshot({ path: 'artifacts/math-fixes/rec2020-boundary.png' });
+  await page.mouse.move(bounds.x + f.sx(0.708), bounds.y + f.sy(0.31));
+  await expect(info).toContainText('非物理刺激');
+  await page.locator('#gamut-cycle').fill('8');
+  await expect(info).toContainText('内部 0 · 近边界 0 · 外部 3');
+});
+
+test('parameter plots, comparisons and overlays describe the visible geometry', async ({
+  page,
+}) => {
+  await page.goto('/?fig=hsl-bicone');
+  await expect(page.locator('.figure-conditions')).toContainText(
+    '右图六棱锥参数比例',
+  );
+  await page.locator('.conversion-details summary').click();
+  await expect(page.locator('#plot-scale-note')).toContainText('C = max − min');
+  await openAdvanced(page);
+  await page.locator('#target').selectOption('hsv');
+  await expect(page.locator('.figure-conditions')).toContainText(
+    '右图圆柱参数比例',
+  );
+  await expect(page.locator('#plot-scale-note')).toHaveText(/半径 0–0.5/);
+  await page.locator('.figure-link[data-figure="luv-lab"]').click();
+  await page.locator('#plot').selectOption('oklab');
+  await expect(page.locator('.figure-highlight')).toContainText(
+    '同一组 Oklab 坐标轴',
+  );
+  await expect(page.locator('.figure-highlight')).not.toContainText(
+    'LUV 的红色角',
+  );
+  await page.goto('/?fig=optimal');
+  await openAdvanced(page);
+  await page.locator('#overlay-optimal').uncheck();
+  await expect(page.locator('.figure-highlight')).not.toContainText('白色线圈');
+  await expect(page.locator('.overlay-legend')).toBeHidden();
+  await page.locator('.figure-link[data-figure="pointer"]').click();
+  await page.locator('#overlay-pointer').uncheck();
+  await expect(page.locator('.figure-highlight')).not.toContainText('金色线圈');
+  await expect(page.locator('.overlay-legend')).toBeHidden();
+});
+
+test('HLG shows its formula beyond nominal peak without assigning delivery codes', async ({
+  page,
+}) => {
+  await page.goto('/?fig=transfer');
+  const hlg = page.locator('.curve-table span').filter({ hasText: 'HLG' });
+  await expect(hlg.locator('code')).toHaveText('0.7500');
+  await expect(hlg.locator('small')).toContainText('码值 767');
+  await page.getByRole('slider', { name: '曝光游标' }).fill('3.3');
+  await expect(hlg.locator('code')).toHaveText('1.1742');
+  await expect(hlg.locator('small')).toHaveText(/公式外推 · 0\.\d+ 信号\/档/);
+  await page.screenshot({
+    path: 'artifacts/hlg-transfer-extension.png',
+    fullPage: true,
+  });
+  await page.getByRole('button', { name: 'Legal range' }).click();
+  await page.getByRole('slider', { name: '曝光游标' }).fill('7');
+  await expect(hlg.locator('code')).toHaveText('1.6344');
+  await expect(hlg.locator('small')).toContainText('公式外推');
+  await page.getByRole('slider', { name: '曝光游标' }).fill('0');
+  await expect(hlg.locator('small')).toContainText('码值 721');
+});
+
+test('transfer curves switch to extrapolation at their own nominal peaks', async ({
+  page,
+}) => {
+  await page.goto('/?fig=transfer');
+  const cursor = page.getByRole('slider', { name: '曝光游标' });
+  const rows = page
+    .locator('.curve-table > span')
+    .filter({ has: page.locator('code') });
+  for (const [stops, names] of [
+    ['0', []],
+    ['0.05', ['sRGB', 'Rec.709', 'Gamma 2.4']],
+    ['5.25', ['sRGB', 'Rec.709', 'Gamma 2.4', 'HLG']],
+    ['5.3', ['sRGB', 'Rec.709', 'Gamma 2.4', 'HLG', 'S-Log3']],
+    ['5.65', ['sRGB', 'Rec.709', 'Gamma 2.4', 'HLG', 'S-Log3', 'PQ']],
+    [
+      '6.65',
+      [
+        'sRGB',
+        'Rec.709',
+        'Gamma 2.4',
+        'HLG',
+        'S-Log3',
+        'PQ',
+        'DaVinci Intermediate',
+      ],
+    ],
+  ] as const) {
+    await cursor.fill(stops);
+    const outside = rows.filter({ hasText: '公式外推' });
+    await expect(outside).toHaveCount(names.length);
+    for (const name of names) {
+      const row = outside.filter({ hasText: name });
+      expect(Number(await row.locator('code').textContent())).toBeGreaterThan(
+        1,
+      );
+      await expect(row.locator('small')).not.toContainText('码值');
+    }
+  }
+  await page.screenshot({
+    path: 'artifacts/transfer-nominal-ranges.png',
+    fullPage: true,
+  });
+  await page.getByRole('button', { name: '斜率' }).click();
+  await page.getByRole('button', { name: 'Legal range' }).click();
+  await expect(rows.filter({ hasText: '公式外推' })).toHaveCount(7);
+  const logc4 = rows.filter({ hasText: 'LogC4' });
+  await cursor.fill('8.85');
+  await expect(logc4).toContainText('码值');
+  await cursor.fill('8.9');
+  await expect(logc4).toContainText('公式外推');
+  await cursor.press('End');
+  await expect(cursor).toHaveValue('10');
+  await expect(logc4).toContainText('公式外推');
+  await page.getByRole('button', { name: '信号', exact: true }).click();
+  await expect(page.locator('.figure-host canvas')).toHaveAttribute(
+    'data-view',
+    'signal',
+  );
+  await page.screenshot({
+    path: 'artifacts/transfer-logc4-plus10.png',
+    fullPage: true,
+  });
 });
 
 test('chromaticity probe reports temperatures beyond its supported range', async ({
@@ -197,6 +357,96 @@ test('10-degree CMF overlay leaves its blue peak inside the plot', async ({
   expect(peakTop).not.toBeNull();
   expect(peakTop!).toBeGreaterThan(30);
   await page.screenshot({ path: 'artifacts/fix-cmf10.png', fullPage: true });
+});
+
+test('the 2000 K red tail and the Rec.709 extrapolated slope reach the right edge', async ({
+  page,
+}) => {
+  for (const id of ['blackbody', 'transfer']) {
+    await page.goto(`/?fig=${id}`);
+    const canvas = page.locator('.figure-host canvas');
+    if (id === 'blackbody') {
+      await page.locator('#temperature').fill('2000');
+      await expect(canvas).toHaveAttribute('data-temperature', '2000');
+    } else {
+      await page.getByRole('button', { name: '斜率' }).click();
+      await page.locator('#exposure').fill('10');
+      await expect(
+        page.locator('.curve-table > span').filter({ hasText: 'Rec.709' }),
+      ).toContainText('7.7566 信号/档');
+    }
+    // Look for the warm-coloured curve at the high-x end. Both previously
+    // disappeared above the canvas well before the end of their input range.
+    await expect
+      .poll(() =>
+        canvas.evaluate((c: HTMLCanvasElement) => {
+          const scale = c.width / c.clientWidth;
+          const x = Math.floor((c.clientWidth - 25) * scale);
+          const pixels = c
+            .getContext('2d')!
+            .getImageData(
+              x,
+              Math.ceil(30 * scale),
+              Math.ceil(6 * scale),
+              Math.floor((c.clientHeight - 100) * scale),
+            ).data;
+          for (let i = 0; i < pixels.length; i += 4)
+            if (
+              pixels[i] > 160 &&
+              pixels[i] - pixels[i + 1] > 25 &&
+              pixels[i + 1] - pixels[i + 2] > 40
+            )
+              return true;
+          return false;
+        }),
+      )
+      .toBe(true);
+    await page.screenshot({ path: `artifacts/math-fixes/${id}-range.png` });
+  }
+});
+
+test('Look tracking follows the colour toggle and exports only applicable metadata', async ({
+  page,
+}) => {
+  await page.goto('/?fig=oklab');
+  await openAdvanced(page);
+  await page.locator('#target').selectOption('stages');
+  await page.locator('#param-redGreen').fill('0');
+  await page.locator('#param-blueYellow').fill('0');
+  await expect(page.locator('.figure-reading')).toContainText('点色保留输入色');
+  await page.locator('#preserve').uncheck();
+  await expect(page.locator('.figure-reading')).toContainText(
+    '点色显示当前强度下的输出色',
+  );
+  const downloading = page.waitForEvent('download');
+  await page.getByRole('button', { name: '导出对比图' }).click();
+  await (await downloading).saveAs('artifacts/math-fixes/look-desaturated.png');
+  const matches = await page
+    .locator('.export-feedback a[download]')
+    .evaluate(async (link: HTMLAnchorElement) => {
+      const image = new Image();
+      image.src = link.href;
+      await image.decode();
+      const canvas = document.createElement('canvas');
+      canvas.width = image.width;
+      canvas.height = image.height;
+      const ctx = canvas.getContext('2d')!;
+      ctx.drawImage(image, 0, 0);
+      const actual = ctx.getImageData(40, 818, 1520, 22).data;
+      ctx.fillStyle = '#141619';
+      ctx.fillRect(0, 818, 1600, 22);
+      ctx.font = '13px sans-serif';
+      ctx.fillStyle = '#eeeff4';
+      ctx.fillText(
+        'DISPLAY: sRGB | AXES: Equal-unit axes | DOTS: Flat | COLORS: Actual output',
+        40,
+        835,
+      );
+      return ctx
+        .getImageData(40, 818, 1520, 22)
+        .data.every((v, i) => v === actual[i]);
+    });
+  expect(matches).toBe(true);
 });
 
 test('quantization steps depend on code range, not the displayed signal interval', async ({
@@ -352,9 +602,9 @@ test('RGB state labels and AP1 counts describe the current state', async ({
   }
   await page.goto('/?fig=aces');
   await expect(page.locator('.figure-highlight')).toContainText(
-    '最终趋向显示白',
+    '本晶格内没有节点到达显示白',
   );
-  await expect(status).toHaveText(/^输出：ACES 拟合/);
+  await expect(status).toHaveText(/^输出：ACES 2\.0/);
   await expect(canvas).toHaveAttribute('aria-description', /R′、G′、B′/);
   await state('输入').click();
   await expect(status).toHaveText(/^输入：每通道 log₂ 曝光/);
@@ -569,7 +819,7 @@ test('wide-gamut figures pin the density their captions quote', async ({
     'data-points',
     '729',
   );
-  await expect(page.locator('.figure-highlight')).toContainText('255 / 729');
+  await expect(page.locator('.figure-highlight')).toContainText('254 / 729');
   // Changing the density afterwards drops the figure's caption.
   await page.locator('#density').selectOption('5');
   await expect(ap1).not.toHaveAttribute('aria-current', 'true');

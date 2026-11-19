@@ -114,7 +114,7 @@ export const stages: Stage[] = [
         name: '显示变换',
         figures: [
           f('curves', 'tonemap', '色调映射曲线'),
-          f('transform', 'aces', 'ACES 1.x 色调映射（Hill 拟合）'),
+          f('transform', 'aces', 'ACES 2.0 输出变换'),
           f('transform', 'agx', 'AgX'),
         ],
       },

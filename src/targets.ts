@@ -230,7 +230,8 @@ export const colorTargets: ColorTarget[] = [
     description:
       'sRGB 的色相、饱和度与明度表示。HSL 明度不是感知明度，不能用于跨色相比较亮度。',
     route: 'sRGB → H、S、L',
-    layout: 'H 绕竖轴旋转，S 为半径，L 为高度；显示为圆柱坐标。',
+    layout:
+      'H 绕竖轴旋转。S 从 0 到 100% 对应半径 0–0.5，L 从 0 到 100% 对应高度差 1。',
     kind: 'hsl',
   },
   {
@@ -243,7 +244,8 @@ export const colorTargets: ColorTarget[] = [
     description:
       'sRGB 的色相、饱和度与最大通道值表示。V 为 RGB 最大值，不是测量亮度。',
     route: 'sRGB → H、S、V',
-    layout: 'H 为角度，S 为半径，V 为高度；灰阶的色相未定义。',
+    layout:
+      'H 绕竖轴旋转。S 从 0 到 100% 对应半径 0–0.5，V 从 0 到 100% 对应高度差 1。',
     kind: 'hsv',
   },
 ];
@@ -306,9 +308,10 @@ colorTargets.push(
     axes: ['红 C', 'V', '绿 C'],
     white: 'D65 / sRGB',
     description:
-      'HSV 的原始几何：色相沿六边形走一圈，半径是色度 C = max − min，高度是 V = max。黑色收成锥尖。',
+      'H 沿六边形周界变化，色度 C = max − min 决定截面的大小，高度由 V = max 决定。黑色收成锥尖。',
     route: 'sRGB → max、min → H、C、V',
-    layout: '水平面为六边形投影，C = 1 时到达顶点；V 为高度。参数示意图。',
+    layout:
+      '色度 C = max − min 决定六边形的大小，中心到顶点的距离为 C/2。V 从 0 到 1 对应高度差 1。',
     kind: 'hexcone',
     highlight:
       '同一个 RGB 立方体，从白点方向看下去就是六棱锥：纯色在顶面六个角，黑色在锥尖。',
@@ -321,9 +324,10 @@ colorTargets.push(
     axes: ['红 C', 'L', '绿 C'],
     white: 'D65 / sRGB',
     description:
-      'HSL 的原始几何：半径为色度 C，高度为 L = (max + min) / 2。纯色都落在 L = 0.5 的腰线上。',
+      '色度 C = max − min 决定六边形截面的大小，高度由 L = (max + min) / 2 决定。六个纯色角都落在 L = 0.5 的腰线上。',
     route: 'sRGB → max、min → H、C、L',
-    layout: '水平面为六边形投影，L 为高度。参数示意图。',
+    layout:
+      '色度 C = max − min 决定六边形的大小，中心到顶点的距离为 C/2。L 从 0 到 1 对应高度差 1。',
     kind: 'hexcone',
     highlight:
       '黑、白各占一个锥尖，所有纯色挤在中间的六边形腰线上——这就是 HSL「明度」与感知亮度对不上的原因。',
@@ -371,7 +375,7 @@ colorTargets.push(
     layout: '三轴统一放大 4 倍；SDR 白点 Jz ≈ 0.22。',
     kind: 'jzazbz',
     highlight:
-      'SDR 白只到 Jz ≈ 0.22，体积压在底部；上方大片空间留给 HDR 高光。',
+      '参考白 203 cd/m² 对应 Jz ≈ 0.222，位于图中 0–0.25 标尺的约 89% 处。',
   },
   {
     id: 'zcam',
@@ -444,8 +448,15 @@ export function convertColor(
   source = 'srgb',
 ): Vec3 {
   // Color.js owns matrices/adaptation; color-management registers the shared curves.
-  // Keep powerless hue as NaN in numeric results; only the drawing substitutes an angle.
+  // Readouts use NaN for powerless hue. Color.js accepts null for that channel
+  // on the return trip. Preserve non-finite values on other axes as errors.
   const color = new Color(source, rgb);
+  if (rgb.some(Number.isNaN)) {
+    const hue = Object.values(color.space.coords).findIndex(
+      (coord) => coord.type === 'angle',
+    );
+    if (hue >= 0 && Number.isNaN(rgb[hue])) color.coords[hue] = null;
+  }
   const coords = color
     .to(target.id)
     .coords.map((value) => (value === null ? Number.NaN : value)) as Vec3;

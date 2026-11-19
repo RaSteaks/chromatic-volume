@@ -218,6 +218,22 @@ function sourcePlotModel() {
     ? (compareModel() ?? getTarget(state.source)!)
     : getTarget(state.plot)!;
 }
+/** Both panels can use different axis conventions in a native comparison. */
+function axisScale(model: ColorTarget) {
+  if (model.kind === 'hsl' || model.kind === 'hsv')
+    return {
+      label: '圆柱参数比例',
+      english: `Cylindrical (radius S%/200, height ${model.channels[2]}/100)`,
+    };
+  if (model.kind === 'hexcone')
+    return {
+      label: '六棱锥参数比例',
+      english: `Hexagonal (vertex radius C/2, height ${model.channels[2]})`,
+    };
+  return state.equalAxes
+    ? { label: '等单位轴', english: 'Equal-unit axes' }
+    : { label: '示意轴比例', english: 'Illustrative axes' };
+}
 function overlayLines(model: ColorTarget): NonNullable<VolumeData['lines']> {
   if (!state.overlayOptimal && !state.overlayPointer) return [];
   // Draw runs every animation frame: look up the cache before building anything.
@@ -331,8 +347,11 @@ function updateModel() {
         state.source,
       );
       const after = convertColor(point, getTarget('xyz-d65')!, target.id);
-      // Numerical round-trip tolerance in relative XYZ, not a perceptual ΔE threshold.
-      return before.some((value, axis) => Math.abs(value - after[axis]) > 1e-7);
+      // Require every XYZ difference to be within tolerance. A non-finite
+      // result on either side also fails this comparison.
+      return !before.every(
+        (value, axis) => Math.abs(value - after[axis]) <= 1e-7,
+      );
     });
   } else if (state.target === 'stages') {
     targetCoordinates = sourceColors.map((point) =>
@@ -436,7 +455,7 @@ function updateLabels() {
     target?.name ?? (state.target === 'lut' ? '3D LUT' : '自定义 Look');
   const marked = '选中的采样点在两个画布上同时标出，点击任一点可改选。';
   reading.textContent = isLook()
-    ? `两个画布是同一批 ${source.name} 采样点，画在同一个绘图空间：源画布是处理前的位置，目标画布是经${targetName}处理后的位置和颜色。${marked}`
+    ? `两个画布在同一个绘图空间中显示这批 ${source.name} 采样点。右侧点位表示当前强度下的处理结果，${state.preserve ? '点色保留输入色，便于跟踪同一个样本' : '点色显示当前强度下的输出色'}。${marked}`
     : state.plot !== 'native'
       ? `两个画布画在同一个 ${getTarget(state.plot)!.name} 空间：源画布是 ${source.name} 采样点，目标画布是这些点转换到 ${targetName} 再解码后的位置；无损转换时两者重合。${marked}`
       : compared
@@ -454,6 +473,10 @@ function updateLabels() {
   heading.textContent = activeFigure
     ? figureTitle(activeFigure.id)
     : `${source.name} → ${targetName}`;
+  const leftScale = axisScale(sourcePlotModel()).label;
+  const rightScale = axisScale(
+    getTarget(state.plot === 'native' ? state.target : state.plot) ?? source,
+  ).label;
   conditions.textContent = [
     `${source.name} ${state.density}³ 均匀采样`,
     target
@@ -464,7 +487,9 @@ function updateLabels() {
     state.plot === 'native'
       ? '原生坐标'
       : `统一 ${getTarget(state.plot)!.name}`,
-    state.equalAxes ? '等单位轴' : '示意轴比例',
+    leftScale === rightScale
+      ? rightScale
+      : `左图${leftScale} · 右图${rightScale}`,
   ].join(' · ');
   document.title = `${heading.textContent} · ${stageOf(stage).name} · Chromatic Volume`;
   modelStatus.textContent = target
@@ -489,7 +514,7 @@ function updateSample() {
   );
   if (note && plotModel)
     note.textContent = ['hsl', 'hsv', 'hexcone'].includes(plotModel.kind)
-      ? 'HSL / HSV 为圆柱参数示意图；S 为半径，L / V 为高度，距离不表示感知色差。'
+      ? `${plotModel.layout} 图中距离不表示感知色差。`
       : state.equalAxes
         ? `等单位轴比例：${plotModel.kind === 'lab' || plotModel.kind === 'lch' ? 'L*、a*、b* 均除以 200' : plotModel.kind === 'oklab' || plotModel.kind === 'oklch' ? 'L、a、b 均使用原始单位' : '笛卡尔坐标统一缩放'}。极坐标按圆柱展开；屏幕投影距离不是色差读数。`
         : plotModel.layout;
@@ -621,6 +646,10 @@ function applyFigure(figure: VolumeFigure, push = false) {
 function renderFigures() {
   nav?.mark(activeFigure?.id ?? null);
 }
+function clearFigure() {
+  activeFigure = null;
+  renderFigures();
+}
 function renderLegend() {
   const items: [string, string][] = [];
   if (state.overlayOptimal)
@@ -645,11 +674,19 @@ function renderOverlayControls() {
     el('span', { class: 'overlay-title' }, '叠加'),
     toggle('overlay-optimal', '最优色边界', state.overlayOptimal, (value) => {
       state.overlayOptimal = value;
+      if (activeFigure?.state.overlayOptimal && !value) {
+        clearFigure();
+        renderInspector();
+      }
       updateLabels();
       draw();
     }),
     toggle('overlay-pointer', 'Pointer 色域', state.overlayPointer, (value) => {
       state.overlayPointer = value;
+      if (activeFigure?.state.overlayPointer && !value) {
+        clearFigure();
+        renderInspector();
+      }
       updateLabels();
       draw();
     }),
@@ -839,7 +876,9 @@ function renderInspector() {
     const highlightText = el(
       'p',
       { class: 'figure-highlight' },
-      activeFigure?.highlight ?? target.highlight ?? target.description,
+      state.plot === 'native'
+        ? (activeFigure?.highlight ?? target.highlight ?? target.description)
+        : `两侧使用同一组 ${getTarget(state.plot)!.name} 坐标轴。映射进度到 100% 时，同一样本的两点若出现位移，可查看目标解码色样与往返损失提示。`,
     );
     linkReferences(highlightText);
     content.append(
@@ -1071,6 +1110,7 @@ function renderDisplayControls() {
       ? [
           toggle('preserve', '保留输入色', state.preserve, (value) => {
             state.preserve = value;
+            updateLabels();
             draw();
           }),
         ]
@@ -1126,8 +1166,7 @@ densitySelect.value = String(state.density);
 densitySelect.addEventListener('change', () => {
   state.density = Number(densitySelect.value);
   // Figure captions can quote counts for a specific sampling density.
-  activeFigure = null;
-  renderFigures();
+  clearFigure();
   resample();
   updateModel();
   renderInspector();
@@ -1174,8 +1213,7 @@ const sourceSelect = el(
 );
 sourceSelect.value = state.source;
 sourceSelect.addEventListener('change', () => {
-  activeFigure = null;
-  renderFigures();
+  clearFigure();
   state.source = sourceSelect.value;
   resample();
   updateModel();
@@ -1191,8 +1229,7 @@ const compareSelect = el(
 );
 compareSelect.addEventListener('change', () => {
   state.compare = compareSelect.value;
-  activeFigure = null;
-  renderFigures();
+  clearFigure();
   renderInspector();
   updateModel();
 });
@@ -1209,6 +1246,10 @@ plotSelect.options[0].disabled = isLook();
 plotSelect.addEventListener('change', () => {
   state.plot = plotSelect.value;
   syncCompareSelect();
+  if (!isLook()) {
+    clearFigure();
+    renderInspector();
+  }
   updateModel();
 });
 const field = (label: string, control: HTMLSelectElement) =>
@@ -1352,20 +1393,25 @@ function exportImage() {
     );
   }
   ctx.font = '13px sans-serif';
-  const plotKind = getTarget(targetPlot)!.kind;
-  const axisMode = ['hsl', 'hsv'].includes(plotKind)
-    ? 'Cylindrical parameter diagram'
-    : state.equalAxes
-      ? 'Equal-unit axes'
-      : 'Illustrative axes';
+  const leftScale = axisScale(sourcePlot).english;
+  const rightScale = axisScale(getTarget(targetPlot)!).english;
+  const axisMode =
+    leftScale === rightScale
+      ? rightScale
+      : `left ${leftScale}, right ${rightScale}`;
   const colorMode =
     isLook() && state.preserve ? 'Input tracking' : 'Actual output';
-  ctx.fillText(
-    `DISPLAY: ${displayName} | AXES: ${axisMode} | DOTS: ${state.flatColors ? 'Flat' : 'Shaded'} | COLORS: ${colorMode} | ${state.target === 'lut' ? `${state.interpolation} | DOMAIN clamped: ${clippedInputs}` : `Color loss: ${conversionLoss.filter(Boolean).length}`}`,
-    40,
-    835,
-    1520,
-  );
+  const metadata = [
+    `DISPLAY: ${displayName}`,
+    `AXES: ${axisMode}`,
+    `DOTS: ${state.flatColors ? 'Flat' : 'Shaded'}`,
+    `COLORS: ${colorMode}`,
+  ];
+  if (state.target === 'lut')
+    metadata.push(state.interpolation, `DOMAIN clamped: ${clippedInputs}`);
+  else if (!isLook())
+    metadata.push(`Color loss: ${conversionLoss.filter(Boolean).length}`);
+  ctx.fillText(metadata.join(' | '), 40, 835, 1520);
   ctx.fillStyle = '#a0a3ae';
   ctx.font = '16px sans-serif';
   ctx.fillText(

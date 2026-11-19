@@ -298,10 +298,12 @@ function blackbody({ host, controls, readout }: FigureContext) {
   const plot = createCanvas(
     host,
     (ctx, width, height) => {
-      const f = frame(width, height, LAMBDA, [0, 3.6], spectralPad);
+      // A fixed scale allows comparison across temperatures, including
+      // the 2000 K red tail (7.147 at 780 nm relative to 560 nm).
+      const f = frame(width, height, LAMBDA, [0, 8], spectralPad);
       axes(ctx, f, {
         xTicks: ticks(400, 780, 50),
-        yTicks: ticks(0, 3.5, 0.5),
+        yTicks: ticks(0, 8, 1),
         yFormat: (v) => v.toFixed(1),
         xLabel: '波长 nm',
         yLabel: '相对辐射（560 nm = 1）',
@@ -510,6 +512,23 @@ function binColor(angle: number) {
       .coords.map((v) => v ?? 0) as Vec3,
   );
 }
+export function tm30Vectors(source: (typeof tm30.sources)[number]) {
+  return source.reference.map((ref, j) => {
+    const test = source.test[j];
+    const norm = Math.hypot(ref[0], ref[1]);
+    // Rcs,hj and Rhs,hj project the normalized displacement onto the
+    // radial and tangential axes at the centre of the 22.5° hue bin.
+    const angle = ((j + 0.5) * 2 * Math.PI) / 16;
+    const base: [number, number] = [Math.cos(angle), Math.sin(angle)];
+    return {
+      base,
+      test: [
+        base[0] + (test[0] - ref[0]) / norm,
+        base[1] + (test[1] - ref[1]) / norm,
+      ] as [number, number],
+    };
+  });
+}
 function tm30Figure({ host, controls, readout }: FigureContext) {
   let source = tm30.sources[2];
   const info = el('div', { class: 'readout-list' });
@@ -546,19 +565,7 @@ function tm30Figure({ host, controls, readout }: FigureContext) {
       ctx.arc(cx, cy, r, 0, Math.PI * 2);
       ctx.stroke();
       ctx.setLineDash([]);
-      const points = source.reference.map((ref, j) => {
-        const test = source.test[j];
-        const norm = Math.hypot(ref[0], ref[1]);
-        const angle = Math.atan2(ref[1], ref[0]);
-        const base: [number, number] = [Math.cos(angle), Math.sin(angle)];
-        return {
-          base,
-          test: [
-            base[0] + (test[0] - ref[0]) / norm,
-            base[1] + (test[1] - ref[1]) / norm,
-          ] as [number, number],
-        };
-      });
+      const points = tm30Vectors(source);
       ctx.lineWidth = 1.4;
       for (const p of points) {
         ctx.strokeStyle = '#ffffffb0';
@@ -799,7 +806,7 @@ function cameraFigure({ host, controls, readout }: FigureContext) {
       '相机',
       segmented(
         '相机',
-        names.map((n) => ({ id: n, name: n.replace(' (NPL)', '') })),
+        names.map((n) => ({ id: n, name: n.replace(/ \(.+\)$/, '') })),
         name,
         (v) => {
           name = v;
@@ -851,7 +858,7 @@ const figures: FigureDef[] = [
       '亮色曲线是当前温度下黑体的光谱（560 nm 处归一为 1），淡色曲线是六个参考温度；小图里的点是该温度在 xy 色度图普朗克轨迹上的位置。',
     grade: 'reference',
     highlight:
-      '可用钨丝灯的暖光作参照，观察理想黑体随温度变化的光谱和色度。色温按 mired 排列，相同开尔文差在高色温端造成的色度变化更小。曲线在 560 nm 归一，只比较光谱形状；同色温 LED 的真实光谱仍可能不同。',
+      '滑块按开尔文等距取值。观察同样的温差在高色温端如何产生更小的色度位移，右侧同时给出倒色温 mired = 10⁶/T。各温度曲线在 560 nm 归一，可用来比较光谱形状。',
     provenance: {
       data: '普朗克公式直接计算',
       domain:
@@ -879,7 +886,7 @@ const figures: FigureDef[] = [
     id: 'tm30',
     conditions: 'ANSI/IES TM-30-18 · 99 CES · CAM02-UCS · 16 色相区间',
     reading:
-      '虚线圆是参考光源下 16 个色相区间的平均位置，红色折线是被测光源下的对应位置，白色线段连接同一区间的两个位置：向外表示饱和度升高，沿圆周表示色相偏移。',
+      '白线从虚线圆上各色相区间的中心出发，表示样本从参考光源到被测光源的平均位移。沿起点半径向外的分量表示色度增加，沿切线的分量表示色相偏移。红色折线连接各终点。',
     grade: 'reference',
     highlight:
       '为布景与服装选灯时，除了色温，还可观察各色相区间相对参考光源的变化。线段表示 99 个样本分组后的平均偏移，Rf 与 Rg 分别概括保真度和色域变化。TM-30 基于人眼色貌模型；这些数值不等于某台电影摄影机的还原误差。',
@@ -894,17 +901,17 @@ const figures: FigureDef[] = [
   },
   {
     id: 'luther',
-    conditions: 'NPL 实测灵敏度 · 对 x̄ȳz̄ 的最小二乘 3×3 拟合',
+    conditions: 'rawtoaces-data 与 NPL 实测灵敏度 · 对 x̄ȳz̄ 的最小二乘 3×3 拟合',
     reading:
       '上图是相机三个通道的实测光谱灵敏度。下图细实线是 CIE x̄ȳz̄，虚线是用一个 3×3 矩阵从相机灵敏度组合出的最佳近似；两者的差距即右侧的残差。',
     grade: 'reference',
     highlight:
-      '多机匹配时，一组 3×3 矩阵未必能在所有灯光与材质下都精确对齐颜色。图中用实测相机响应拟合标准观察者，残差非零说明不满足 Luther–Ives 条件。这里的 Nikon／Sigma 数据用于解释原理，不代表电影摄影机的实测匹配结果。',
+      '四台都不满足 Luther–Ives 条件，合计残差相近，误差却落在不同通道：ARRI D21 的 x̄、ȳ 残差在四台中最低，z̄ 最高；Sony α7S III 与 Nikon 5100 的三通道残差几乎一致。两台摄影机各自经 3×3 进入同一 XYZ／ACES 后，剩余误差方向不同，多机匹配不能只靠输入矩阵。',
     provenance: {
-      data: 'NPL 相机光谱灵敏度（Colour Science 0.4.4）',
+      data: 'ARRI D21（scitech，2017）、Sony α7S III（Weta Digital physlight，2025）：AMPAS rawtoaces-data，Apache-2.0；Nikon 5100、Sigma SD Merrill：NPL（Colour Science 0.4.4）',
       domain: '逐波长、等权最小二乘；目标为 CIE 1931 2°',
       approximation:
-        '光谱拟合不等于实际相机矩阵（后者按训练色样与光源优化）；Sigma SD Merrill 仅 400–680 nm，在测量范围内拟合',
+        '光谱拟合不等于实际相机矩阵（后者按训练色样与光源优化）；D21 是 ALEXA 之前的机型，α7S III 为无反相机，均不代表 ALEXA／VENICE 系列的响应；Sigma SD Merrill 仅 400–680 nm，在测量范围内拟合',
       reference: 'Luther 1927；Ives 1915',
     },
     mount: cameraFigure,

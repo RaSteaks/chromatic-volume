@@ -6,3 +6,5 @@ test-results
 package-lock.json
 src/data/*.json
 tests/reference/figures.json
+tests/reference/aces2.json
+scripts/data/rawtoaces-data/*.json

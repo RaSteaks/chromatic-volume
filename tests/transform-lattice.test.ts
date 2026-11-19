@@ -14,8 +14,8 @@ describe('geometric morph labels and current-frame readouts', () => {
       expect(lattice(t).label).toMatch(/^过渡示意：/);
       expect(lattice(t).axes).toEqual(['R（过渡）', 'G（过渡）', 'B（过渡）']);
     }
-    expect(lattice(0.6).positions[0][0]).toBeCloseTo(0.408280389184398, 12);
-    expect(lattice(1).positions[0][0]).toBeCloseTo(0.3584573907166636, 12);
+    expect(lattice(0.6).positions[0][0]).toBeCloseTo(0.4022745212679066, 12);
+    expect(lattice(1).positions[0][0]).toBeCloseTo(0.34918907603072, 12);
     expect(lattice(1).label).toBe(spec.keyframes[1].name);
     expect(lattice(1).axes).toEqual(['R′', 'G′', 'B′']);
   });

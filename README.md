@@ -79,7 +79,7 @@
 
 - **渲染**：Canvas 2D 正交投影真实三维坐标，按深度排序由远及近绘制，无 WebGL 依赖；按需重绘，预览页限制 24 fps，不可见时暂停。
 - **色彩引擎**：[Color.js](https://colorjs.io/) 负责标准转换；BT.709 / BT.1886、ACEScc 与八家摄影机 Log 曲线由项目实现并注册为 Color.js 空间。
-- **严格比例**：每个模型只做统一缩放与平移，三轴单位一致；圆柱模型先还原为笛卡尔坐标。LUT 与自定义 Look 两侧共用同一绘图空间、轴和相机。
+- **严格比例**：色度与色相还原为笛卡尔分量后，严格视图对三轴统一缩放。HSL / HSV 使用参数图：圆柱的最大半径为 0.5，六棱锥的顶点半径为 C/2，两者的总高度均为 1。LUT 与自定义 Look 两侧共用同一绘图空间、轴和相机。
 - **数值验证**：用独立的 Python [Colour Science](https://www.colour-science.org/) 生成参考值，与生产代码交叉比对 5,905 个案例。详见 [色彩科学与验证说明](docs/COLOR-SCIENCE.md)。
 - **构建**：TypeScript + Vite，输出纯静态站点；Vitest 单元测试，Playwright headless WebKit 端到端测试。构建时设置 `SITE_URL`（如 `SITE_URL=https://example.com npm run deploy`），`og:image` 会写成社交平台预览所需的绝对地址。
 

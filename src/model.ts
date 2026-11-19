@@ -166,7 +166,8 @@ export const definitions: StageDefinition[] = [
     english: 'Contrast Boost',
     description: '以中灰为中心展开亮度间距，并用平滑曲线收拢极端亮度。',
     geometry: '重新分配亮度轴上的间距',
-    formula: 'E′ = ½ + ½ · tanh(k · (E − ½)) / tanh(k/2)',
+    formula:
+      'k = 2 × 对比强度。k = 0 时 E′ = E；k > 0 时 E′ = ½ + ½ · tanh(k · (E − ½)) / tanh(k/2)',
     parameters: [amount('对比强度', 0, 2)],
   },
   {

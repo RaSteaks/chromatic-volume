@@ -1,6 +1,31 @@
 import { expect, test } from '@playwright/test';
 import { colorSources } from '../../src/targets';
 
+test('neutral OKLCH decodes to a displayable grey in the shared XYZ plot', async ({
+  page,
+}) => {
+  await page.goto('/?fig=oklab');
+  await page.locator('.advanced > summary').click();
+  await page.locator('#target').selectOption('oklch');
+  await page.locator('#plot').selectOption('xyz-d65');
+  await page.locator('#sample-index').fill('365');
+  await page.locator('#sample-index').press('Tab');
+  await expect(page.locator('#coordinate-values dd').last()).toHaveText(
+    '未定义',
+  );
+  await expect(page.locator('.flat-swatch').last()).toHaveCSS(
+    'background-color',
+    'rgb(128, 128, 128)',
+  );
+  await expect(page.locator('.model-status')).toContainText(
+    '0 个目标点超出 sRGB',
+  );
+  await expect(page.locator('.model-status')).toContainText(
+    '0 点在目标转换中损失颜色',
+  );
+  await page.screenshot({ path: 'artifacts/math-fixes/neutral-oklch.png' });
+});
+
 test('shared plots show target encoding loss instead of assuming color identity', async ({
   page,
 }) => {
